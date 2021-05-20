@@ -60,7 +60,11 @@ int h264_mp4toannexb(const struct mpeg4_avc_t* avc, const void* data, int bytes,
 int h264_is_new_access_unit(const uint8_t* nalu, size_t bytes);
 
 /// H.264 nal unit split
-void mpeg4_h264_annexb_nalu(const void* h264, int bytes, void (*handler)(void* param, const uint8_t* nalu, int bytes), void* param);
+int mpeg4_h264_annexb_nalu(const void* h264, int bytes, void (*handler)(void* param, const uint8_t* nalu, int bytes), void* param);
+
+/// Detect H.264 bitstrem type: H.264 Annexb or MP4-AVCC
+/// @return 0-annexb, >0-avcc length, <0-error
+int mpeg4_h264_bitstream_format(const uint8_t* h264, int bytes);
 
 #if defined(__cplusplus)
 }

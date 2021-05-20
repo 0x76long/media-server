@@ -24,7 +24,7 @@ extern "C" {
 #define SIP_METHOD_PRACK		"PRACK" // rfc3262
 #define SIP_METHOD_INFO			"INFO" // rfc2976/rfc6086
 #define SIP_METHOD_REFER		"REFER" // rfc3515
-#define SIP_METHOD_MESSAGE		"MESSAGE" // rfc3248
+#define SIP_METHOD_MESSAGE		"MESSAGE" // rfc3428
 #define SIP_METHOD_SUBSCRIBE	"SUBSCRIBE" // rfc4660/rfc6665
 #define SIP_METHOD_NOTIFY		"NOTIFY" // rfc4660/rfc6665
 #define SIP_METHOD_PUBLISH		"PUBLISH" // rfc3903
@@ -113,7 +113,7 @@ int sip_message_destroy(struct sip_message_t* msg);
 int sip_message_clone(struct sip_message_t* msg, const struct sip_message_t* clone);
 int sip_message_init(struct sip_message_t* msg, const char* method, const char* uri, const char* from, const char* to);
 int sip_message_init2(struct sip_message_t* msg, const char* method, const struct sip_dialog_t* dialog);
-int sip_message_init3(struct sip_message_t* reply, const struct sip_message_t* req);
+int sip_message_init3(struct sip_message_t* reply, const struct sip_message_t* req, const struct sip_dialog_t* dialog);
 int sip_message_initack(struct sip_message_t* ack, const struct sip_message_t* origin);
 
 int sip_message_load(struct sip_message_t* msg, const struct http_parser_t* parser);

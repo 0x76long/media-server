@@ -9,6 +9,7 @@
 #include "sip-uas.h"
 #include "sip-message.h"
 #include "sip-transport.h"
+#include "sip-timer.h"
 #include "port/ip-route.h"
 #include "http-parser.h"
 #include "http-header-auth.h"
@@ -171,7 +172,7 @@ static void sip_uas_loop(struct sip_uas_test_t *test)
         assert(0 == http_parser_input(parser, buffer, &n));
         struct sip_message_t* msg = sip_message_create(parser==test->response? SIP_MESSAGE_REQUEST : SIP_MESSAGE_REPLY);
         assert(0 == sip_message_load(msg, parser));
-        assert(0 == sip_agent_input(test->sip, msg));
+        assert(0 == sip_agent_input(test->sip, msg, test));
         sip_message_destroy(msg);
         http_parser_clear(parser);
 	} while (1);
@@ -179,6 +180,7 @@ static void sip_uas_loop(struct sip_uas_test_t *test)
 
 void sip_uas_test2(void)
 {
+	sip_timer_init();
 	struct sip_uas_handler_t handler;
 	handler.onregister = sip_uas_onregister;
 	handler.oninvite = sip_uas_oninvite;
@@ -189,7 +191,7 @@ void sip_uas_test2(void)
 
 	struct sip_uas_test_t test;
 	test.udp = socket_udp();
-	test.sip = sip_agent_create(&handler, &test);
+	test.sip = sip_agent_create(&handler);
 	test.request = http_parser_create(HTTP_PARSER_RESPONSE, NULL, NULL);
 	test.response = http_parser_create(HTTP_PARSER_REQUEST, NULL, NULL);
 	socket_bind_any(test.udp, SIP_PORT);
@@ -198,4 +200,5 @@ void sip_uas_test2(void)
 	socket_close(test.udp);
 	http_parser_destroy(test.request);
 	http_parser_destroy(test.response);
+	sip_timer_cleanup();
 }
