@@ -111,7 +111,7 @@ struct sip_uas_transaction_t* sip_uas_find_transaction(struct sip_agent_t* sip, 
 
 	via = sip_vias_get(&req->vias, 0);
 	if (!via) return NULL; // invalid sip message
-	assert(cstrprefix(&via->branch, SIP_BRANCH_PREFIX));
+	//assert(cstrprefix(&via->branch, SIP_BRANCH_PREFIX));
 
 	list_for_each_safe(pos, next, &sip->uas)
 	{
@@ -122,7 +122,7 @@ struct sip_uas_transaction_t* sip_uas_find_transaction(struct sip_agent_t* sip, 
 		// 1. via branch parameter
 		if (!cstreq(&via->branch, &via2->branch))
 			continue;
-		assert(cstrprefix(&via2->branch, SIP_BRANCH_PREFIX));
+		//assert(cstrprefix(&via2->branch, SIP_BRANCH_PREFIX));
 
 		// 2. via send-by value
 		// The sent-by value is used as part of the matching process because
@@ -255,7 +255,7 @@ static int sip_uas_input_with_dialog(struct sip_agent_t* sip, const struct sip_m
 			return 0; // invalid ack, discard, TODO: add log here
 		}
 
-		t = sip_uas_transaction_create(sip, msg, dialog);
+		t = sip_uas_transaction_create(sip, msg, dialog, param);
 		if (!t)
 		{
 			locker_unlock(&sip->locker);
