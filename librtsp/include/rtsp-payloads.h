@@ -42,21 +42,22 @@ static struct
     CODEC(AVCODEC_VIDEO_MPEG4,  MOV_OBJECT_MP4V,    MKV_CODEC_VIDEO_MPEG4,  0,                  PSI_STREAM_MPEG4,       RTP_PAYLOAD_MP4V,   90000,  "MPEG4"),
     CODEC(AVCODEC_VIDEO_VP8,    MOV_OBJECT_VP8,     MKV_CODEC_VIDEO_VP8,    0,                  PSI_STREAM_VP8,         RTP_PAYLOAD_VP8,    90000,  "VP8"),
     CODEC(AVCODEC_VIDEO_VP9,    MOV_OBJECT_VP9,     MKV_CODEC_VIDEO_VP9,    0,                  PSI_STREAM_VP9,         RTP_PAYLOAD_VP9,    90000,  "VP9"),
-    CODEC(AVCODEC_VIDEO_AV1,    MOV_OBJECT_AV1,     MKV_CODEC_VIDEO_AV1,    FLV_VIDEO_AV1,      PSI_STREAM_VP9,         RTP_PAYLOAD_AV1,    90000,  "AV1"),
+    CODEC(AVCODEC_VIDEO_AV1,    MOV_OBJECT_AV1,     MKV_CODEC_VIDEO_AV1,    FLV_VIDEO_AV1,      PSI_STREAM_AV1,         RTP_PAYLOAD_AV1,    90000,  "AV1"),
+    CODEC(AVCODEC_VIDEO_AV1,    MOV_OBJECT_AV1,     MKV_CODEC_VIDEO_AV1,    FLV_VIDEO_AV1,      PSI_STREAM_AV1,         RTP_PAYLOAD_AV1X,   90000,  "AV1X"), // https://bugs.chromium.org/p/webrtc/issues/detail?id=11042
 
     // audio
     CODEC(AVCODEC_AUDIO_AAC,    MOV_OBJECT_AAC,     MKV_CODEC_AUDIO_AAC,    FLV_AUDIO_AAC,      PSI_STREAM_AAC,         RTP_PAYLOAD_LATM,   44100,  "MP4A-LATM"),
     CODEC(AVCODEC_AUDIO_AAC,    MOV_OBJECT_AAC,     MKV_CODEC_AUDIO_AAC,    FLV_AUDIO_AAC,      PSI_STREAM_AAC,         RTP_PAYLOAD_MP4A,   44100,  "mpeg4-generic"),
     CODEC(AVCODEC_AUDIO_OPUS,   MOV_OBJECT_OPUS,    MKV_CODEC_AUDIO_OPUS,   FLV_AUDIO_OPUS,     PSI_STREAM_AUDIO_OPUS,  RTP_PAYLOAD_OPUS,   48000,  "opus"),
-    CODEC(AVCODEC_AUDIO_MP3,    MOV_OBJECT_MP3,     MKV_CODEC_AUDIO_MP3,    FLV_AUDIO_MP3,      PSI_STREAM_MP3,         RTP_PAYLOAD_MP3,    16000,  ""), // rtp standard payload id
-    CODEC(AVCODEC_AUDIO_G711U,  MOV_OBJECT_G711u,   MKV_CODEC_UNKNOWN,      FLV_AUDIO_G711A,    PSI_STREAM_AUDIO_G711U, RTP_PAYLOAD_PCMU,   8000,   ""), // rtp standard payload id
-    CODEC(AVCODEC_AUDIO_G711A,  MOV_OBJECT_G711a,   MKV_CODEC_UNKNOWN,      FLV_AUDIO_G711U,    PSI_STREAM_AUDIO_G711A, RTP_PAYLOAD_PCMA,   8000,   ""), // rtp standard payload id    
+    CODEC(AVCODEC_AUDIO_MP3,    MOV_OBJECT_MP3,     MKV_CODEC_AUDIO_MP3,    FLV_AUDIO_MP3,      PSI_STREAM_MP3,         RTP_PAYLOAD_MP3,    16000,  "mp3"), // rtp standard payload id
+    CODEC(AVCODEC_AUDIO_G711A,  MOV_OBJECT_G711a,   MKV_CODEC_UNKNOWN,      FLV_AUDIO_G711A,    PSI_STREAM_AUDIO_G711A, RTP_PAYLOAD_PCMA,   8000,   "pcma"), // rtp standard payload id
+    CODEC(AVCODEC_AUDIO_G711U,  MOV_OBJECT_G711u,   MKV_CODEC_UNKNOWN,      FLV_AUDIO_G711U,    PSI_STREAM_AUDIO_G711U, RTP_PAYLOAD_PCMU,   8000,   "pcmu"), // rtp standard payload id
 
     // data
-    CODEC(AVCODEC_DATA_RAW,     MOV_OBJECT_NONE,   MKV_CODEC_UNKNOWN,      FLV_SCRIPT_METADATA, PSI_STREAM_RESERVED,    RTP_PAYLOAD_DYNAMIC,0,      ""),
+    CODEC(AVCODEC_DATA_RAW,     MOV_OBJECT_NONE,   MKV_CODEC_UNKNOWN,      FLV_SCRIPT_METADATA, PSI_STREAM_RESERVED,    RTP_PAYLOAD_DYNAMIC,0,      "raw"),
     
     // PS/TS
-    CODEC(AVCODEC_NONE,         MOV_OBJECT_NONE,    MKV_CODEC_UNKNOWN,      0,                  PSI_STREAM_RESERVED,    RTP_PAYLOAD_MP2T,   90000,  ""), // rtp standard payload id    
+    CODEC(AVCODEC_NONE,         MOV_OBJECT_NONE,    MKV_CODEC_UNKNOWN,      0,                  PSI_STREAM_RESERVED,    RTP_PAYLOAD_MP2T,   90000,  "TS"), // rtp standard payload id    
     CODEC(AVCODEC_NONE,         MOV_OBJECT_NONE,    MKV_CODEC_UNKNOWN,      0,                  PSI_STREAM_RESERVED,    RTP_PAYLOAD_MP2P,   90000,  "MP2P"),
     CODEC(AVCODEC_NONE,         MOV_OBJECT_NONE,    MKV_CODEC_UNKNOWN,      0,                  PSI_STREAM_RESERVED,    RTP_PAYLOAD_MP2P,   90000,  "PS"), // GB28181
 };
@@ -64,11 +65,11 @@ static struct
 #ifdef _avcodecid_h_
 static inline int avcodecid_find_by_codecid(AVPACKET_CODEC_ID codecid)
 {
-    int i;
+    size_t i;
     for (i = 0; i < sizeof(s_payloads) / sizeof(s_payloads[0]); i++)
     {
         if (s_payloads[i].codecid == codecid && AVCODEC_NONE != s_payloads[i].codecid)
-            return i;
+            return (int)i;
     }
 
     return -1;
@@ -77,11 +78,11 @@ static inline int avcodecid_find_by_codecid(AVPACKET_CODEC_ID codecid)
 
 static inline int avpayload_find_by_flv(int flv)
 {
-    int i;
+    size_t i;
     for (i = 0; i < sizeof(s_payloads) / sizeof(s_payloads[0]); i++)
     {
         if ((int)s_payloads[i].flv == flv && flv != 0)
-            return i;
+            return (int)i;
     }
 
     return -1;
@@ -89,11 +90,11 @@ static inline int avpayload_find_by_flv(int flv)
 
 static inline int avpayload_find_by_mov(uint8_t object)
 {
-    int i;
+    size_t i;
     for (i = 0; i < sizeof(s_payloads) / sizeof(s_payloads[0]); i++)
     {
         if (s_payloads[i].mov == object && MOV_OBJECT_NONE != object)
-            return i;
+            return (int)i;
     }
 
     return -1;
@@ -101,22 +102,22 @@ static inline int avpayload_find_by_mov(uint8_t object)
 
 static inline int avpayload_find_by_mkv(enum mkv_codec_t codec)
 {
-    int i;
+    size_t i;
     for (i = 0; i < sizeof(s_payloads) / sizeof(s_payloads[0]); i++)
     {
         if (s_payloads[i].mkv == codec && MKV_CODEC_UNKNOWN != codec)
-            return i;
+            return (int)i;
     }
 
     return -1;
 }
 static inline int avpayload_find_by_mpeg2(uint8_t mpeg2)
 {
-    int i;
+    size_t i;
     for (i = 0; i < sizeof(s_payloads) / sizeof(s_payloads[0]); i++)
     {
         if (s_payloads[i].mpeg2 == mpeg2 && PSI_STREAM_RESERVED != mpeg2)
-            return i;
+            return (int)i;
     }
 
     return -1;
@@ -125,11 +126,11 @@ static inline int avpayload_find_by_mpeg2(uint8_t mpeg2)
 // for rtp encoding
 static inline int avpayload_find_by_payload(uint8_t payload)
 {
-    int i;
+    size_t i;
     for (i = 0; i < sizeof(s_payloads) / sizeof(s_payloads[0]); i++)
     {
         if (s_payloads[i].payload == payload)
-            return i;
+            return (int)i;
     }
 
     return -1;
@@ -138,13 +139,13 @@ static inline int avpayload_find_by_payload(uint8_t payload)
 // for rtp decoding
 static inline int avpayload_find_by_rtp(uint8_t payload, const char* encoding)
 {
-    int i;
+    size_t i;
     for (i = 0; i < sizeof(s_payloads) / sizeof(s_payloads[0]); i++)
     {
         if ( (payload < RTP_PAYLOAD_DYNAMIC || !encoding || !*encoding) && s_payloads[i].payload == payload)
-            return i;
+            return (int)i;
         else if (payload >= RTP_PAYLOAD_DYNAMIC && encoding && 0 == strcasecmp(encoding, s_payloads[i].encoding))
-            return i;
+            return (int)i;
     }
 
     return -1;

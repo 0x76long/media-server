@@ -108,14 +108,18 @@ static struct pes_t* psm_fetch(struct psm_t* psm, uint8_t sid)
         // guess stream codec id
 #if defined(MPEG_GUESS_STREAM) || defined(MPEG_H26X_VERIFY)
         if (0xE0 <= sid && sid <= 0xEF)
+        {
             psm->streams[psm->stream_count].codecid = PSI_STREAM_H264;
+            return &psm->streams[psm->stream_count++];
+        }
 #endif
 #if defined(MPEG_GUESS_STREAM)
         if(0xC0 <= sid && sid <= 0xDF)
+        {
             psm->streams[psm->stream_count].codecid = PSI_STREAM_AAC;
+            return &psm->streams[psm->stream_count++];
+        }
 #endif
-
-        return &psm->streams[psm->stream_count++];
     }
 
     return NULL;
@@ -147,7 +151,7 @@ static int pes_packet_read(struct ps_demuxer_t *ps, const uint8_t* data, size_t 
 
         //assert(i + 6 + pes_packet_length <= bytes);
         if (i + 6 + pes_packet_length > bytes)
-            return i; // need more data
+            return (int)i; // need more data
 
         // stream id
         switch (data[i+3])
@@ -214,9 +218,9 @@ static int pes_packet_read(struct ps_demuxer_t *ps, const uint8_t* data, size_t 
                     && pes_packet_length + 6 - j > 7 && 0xFF == data[i + j] && 0xF0 == (data[i + j + 1] & 0xF0))
                 {
                     // calc mpeg4_aac_adts_frame_length
-                    for (r = i + j; (size_t)r + 7 < pes_packet_length + 6 - j;)
+                    for (r = (int)(i + j); (size_t)r + 7 < i + pes_packet_length + 6;)
                         r += ((uint16_t)(data[r+3] & 0x03) << 11) | ((uint16_t)data[r + 4] << 3) | ((uint16_t)(data[r + 5] >> 5) & 0x07);
-                    pes->codecid = (size_t)r == pes_packet_length + 6 - j ? PSI_STREAM_AAC : pes->codecid; // fix it
+                    pes->codecid = (size_t)r == i + pes_packet_length + 6 ? PSI_STREAM_AAC : pes->codecid; // fix it
                 }
 #endif
                 r = pes_packet(&pes->pkt, pes, data + i + j, pes_packet_length + 6 - j, ps->start, ps_demuxer_onpes, ps);
@@ -229,10 +233,10 @@ static int pes_packet_read(struct ps_demuxer_t *ps, const uint8_t* data, size_t 
         }
 
         if (0 == j)
-            return i + 4; // invalid data, skip start code
+            return (int)(i + 4); // invalid data, skip start code
     }
 
-    return i;
+    return (int)i;
 }
 
 int ps_demuxer_input(struct ps_demuxer_t* ps, const uint8_t* data, size_t bytes)

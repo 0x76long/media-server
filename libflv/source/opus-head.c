@@ -301,7 +301,7 @@ static int opus_parse_frames(const void* data, size_t len, int (*onframe)(uint8_
         vbr = *p & 0x80;
         if (*p++ & 0x40) // padding
         {
-            p = opus_parse_padding(p, len);
+            p = opus_parse_padding(p, (int)len);
             if (!p)
                 return -1;
         }
@@ -382,6 +382,7 @@ int opus_packet_getframes(const void* data, size_t len, int (*onframe)(uint8_t t
 #if defined(DEBUG) || defined(_DEBUG)
 static int opus_onframe(uint8_t toc, const void* frame, size_t size)
 {
+    (void)toc, frame, size;
     return 0;
 }
 
