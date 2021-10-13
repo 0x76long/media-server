@@ -161,7 +161,7 @@ static inline int rtsp_demuxer_mpegts_onpacket(void* param, int program, int tra
         return pt->tracks[i].bs->input(pt->tracks[i].filter, pts / 90, dts / 90, (const uint8_t*)data, (int)bytes, flags);
     }
 
-    if (0xbd == codecid)
+    if (0xbd == codecid || 0 == codecid)
         return 0; // ignore HIK private stream
 
     (void)program; //ignore
@@ -251,7 +251,7 @@ static inline int rtsp_demuxer_onpspacket(void* param, const void* packet, int b
     n = (int)ps_demuxer_input(pt->ps, packet, bytes);
     assert(n <= bytes);
     if (n >= 0 && n < bytes)
-        r = rtsp_demuxer_merge_ps_buffer(pt, (const uint8_t*)packet + (bytes - n), bytes - n);
+        r = rtsp_demuxer_merge_ps_buffer(pt, (const uint8_t*)packet + n, bytes - n);
     else
         r = n < 0 ? n : 0;
 

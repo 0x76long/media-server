@@ -16,6 +16,7 @@ enum
 	STREAM_VIDEO_SVAC	= 0x80,
 	STREAM_AUDIO_MP3	= 0x04,
 	STREAM_AUDIO_AAC	= 0x0f,
+	STREAM_AUDIO_EAC3	= 0x87,
 	STREAM_AUDIO_G711A	= 0x90,
 	STREAM_AUDIO_G711U	= 0x91,
 	STREAM_AUDIO_G722	= 0x92,
@@ -69,11 +70,19 @@ int ps_muxer_add_stream(struct ps_muxer_t* muxer, int codecid, const void* extra
 int ps_muxer_input(struct ps_muxer_t* muxer, int stream, int flags, int64_t pts, int64_t dts, const void* data, size_t bytes);
 
 
+/// @param[in] codecid 0-unknown, other-enum EPSI_STREAM_TYPE, see more @mpeg-ts-proto.h
+/// @return 0-ok, other-error
 typedef int (*ps_demuxer_onpacket)(void* param, int stream, int codecid, int flags, int64_t pts, int64_t dts, const void* data, size_t bytes);
 
 struct ps_demuxer_t; 
 struct ps_demuxer_t* ps_demuxer_create(ps_demuxer_onpacket onpacket, void* param);
 int ps_demuxer_destroy(struct ps_demuxer_t* demuxer);
+
+/// ps_demuxer_input return consumed bytes, the remain data MUST save and merge with next packet
+/// int n = ps_demuxer_input(demuxer, data, bytes);
+/// if(n >= 0 && n < bytes)
+///		memcpy(NEXTBUFFER, data + n, bytes - n);
+/// 
 /// @return >=0-consume bytes, <0-error
 int ps_demuxer_input(struct ps_demuxer_t* demuxer, const uint8_t* data, size_t bytes);
 

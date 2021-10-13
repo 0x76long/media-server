@@ -79,7 +79,7 @@ static int sip_uas_oninvite(void* param, const struct sip_message_t* req, struct
 		socklen_t len = 0;
 		struct sip_media_t* m = new sip_media_t;
 		m->transport.reset(new RTPUdpTransport());
-		m->nmedia = rtsp_media_sdp((const char*)data, m->medias, sizeof(m->medias) / sizeof(m->medias[0]));
+		m->nmedia = rtsp_media_sdp((const char*)data, bytes, m->medias, sizeof(m->medias) / sizeof(m->medias[0]));
 		assert(m->nmedia > 0);
 		assert(0 == strcasecmp("IP4", m->medias[0].addrtype) || 0 == strcasecmp("IP6", m->medias[0].addrtype));
 		m->port[0] = m->medias[0].port[0];
@@ -92,7 +92,7 @@ static int sip_uas_oninvite(void* param, const struct sip_message_t* req, struct
 		sip_uas_add_header(t, "Content-Type", "application/sdp");
 		sip_uas_add_header(t, "Contact", "sip:" NAME "@" HOST);
 		snprintf(reply, sizeof(reply), pattern, HOST, HOST, m->port[0]);
-		assert(0 == sip_uas_reply(t, 200, reply, strlen(reply)));
+		assert(0 == sip_uas_reply(t, 200, reply, strlen(reply), param));
 		*session = m;
 		return 0;
 	}
@@ -138,19 +138,19 @@ static int sip_uas_onack(void* param, const struct sip_message_t* req, struct si
 /// on terminating a session(dialog)
 static int sip_uas_onbye(void* param, const struct sip_message_t* req, struct sip_uas_transaction_t* t, void* session)
 {
-	return sip_uas_reply(t, 200, NULL, 0);
+	return sip_uas_reply(t, 200, NULL, 0, param);
 }
 
 /// cancel a transaction(should be an invite transaction)
 static int sip_uas_oncancel(void* param, const struct sip_message_t* req, struct sip_uas_transaction_t* t, void* session)
 {
-	return sip_uas_reply(t, 200, NULL, 0);
+	return sip_uas_reply(t, 200, NULL, 0, param);
 }
 
 /// @param[in] expires in seconds
 static int sip_uas_onregister(void* param, const struct sip_message_t* req, struct sip_uas_transaction_t* t, const char* user, const char* location, int expires)
 {
-	return sip_uas_reply(t, 200, NULL, 0);
+	return sip_uas_reply(t, 200, NULL, 0, param);
 }
 
 static void sip_uas_loop(struct sip_uas_test_t *test)
