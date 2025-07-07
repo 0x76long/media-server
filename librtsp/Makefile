@@ -29,8 +29,8 @@ SOURCE_PATHS = source source/client source/server source/utils source/sdp
 SOURCE_FILES = $(foreach dir,$(SOURCE_PATHS),$(wildcard $(dir)/*.cpp))
 SOURCE_FILES += $(foreach dir,$(SOURCE_PATHS),$(wildcard $(dir)/*.c))
 
-SOURCE_FILES += $(ROOT)/source/digest/md5.c
-SOURCE_FILES += $(ROOT)/source/base64.c
+#SOURCE_FILES += $(ROOT)/source/digest/md5.c
+#SOURCE_FILES += $(ROOT)/source/base64.c
 
 #-----------------------------Library--------------------------------
 #
@@ -52,6 +52,6 @@ STATIC_LIBS =
 #
 # DEFINES := $(addprefix -D,$(DEFINES)) # add -L prefix
 #--------------------------------------------------------------------
-DEFINES =
+DEFINES = RTP_OVER_RTSP_TRY_TO_FIND_NEXT_PACKET FIX_DAHUA_AAC_FROM_G711
 
 include ../gcc.mk

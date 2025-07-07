@@ -173,8 +173,8 @@
     <ClCompile Include="src\uas\sip-uas-prack.c">
       <Filter>Source Files\uas</Filter>
     </ClCompile>
-    <ClCompile Include="src\uac\sip-uac-refer.c">
-      <Filter>Source Files\uac</Filter>
+    <ClCompile Include="src\header\sip-header-route.c">
+      <Filter>SIP Header</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

@@ -19,21 +19,25 @@ int sip_uas_onsubscribe(struct sip_uas_transaction_t* t, struct sip_dialog_t* di
 		sip_dialog_set_local_target(subscribe->dialog, req);
 	}
 
+	h = sip_message_get_header_by_name(req, "Expires");
+	subscribe->expires = h ? (uint64_t)cstrtoll(h, NULL, 10) : 0;
+
 	// call once only
-	if (added && t->handler->onsubscribe)
+	if ( /*added &&*/ t->handler->onsubscribe)
 		r = t->handler->onsubscribe(param, req, t, subscribe, &subscribe->evtsession);
 
 	if (subscribe)
 	{
 		// delete subscribe if expires is 0
-		h = sip_message_get_header_by_name(req, "Expires");
-		if (h && 0 == atoi(h->p))
+		if (h && 0 == subscribe->expires)
 		{
             // notify expire
-            if (t->handler->onnotify)
-                t->handler->onnotify(param, req, t, subscribe->evtsession, NULL);
-			sip_subscribe_remove(t->agent, subscribe);
-			assert(1 == subscribe->ref);
+            //if (t->handler->onnotify)
+            //    t->handler->onnotify(param, req, t, subscribe->evtsession, NULL);
+
+			// It's user due to remove subscribe on expires 0 
+			//sip_subscribe_remove(t->agent, subscribe);
+			//assert(1 == subscribe->ref);
 		}
 
 		sip_subscribe_release(subscribe);
@@ -63,8 +67,8 @@ int sip_uas_onnotify(struct sip_uas_transaction_t* t, const struct sip_message_t
 	struct sip_subscribe_t* subscribe;
 
 	subscribe = sip_subscribe_fetch(t->agent, &req->callid, &req->to.tag, &req->from.tag, &req->event);
-	if (!subscribe)
-		return sip_uas_reply(t, 481, NULL, 0, param); // 481 Subscription does not exist
+	//if (!subscribe)
+	//	return sip_uas_reply(t, 481, NULL, 0, param); // 481 Subscription does not exist
 
 	// 489 Bad Event
 	if (t->handler->onnotify)
@@ -72,8 +76,8 @@ int sip_uas_onnotify(struct sip_uas_transaction_t* t, const struct sip_message_t
 	else
 		r = 0; // just ignore
 
-	if (subscribe && 0 == cstrcmp(&req->substate.state, SIP_SUBSCRIPTION_STATE_TERMINATED))
-		sip_subscribe_remove(t->agent, subscribe);
+	//if (subscribe && 0 == cstrcmp(&req->substate.state, SIP_SUBSCRIPTION_STATE_TERMINATED))
+	//	sip_subscribe_remove(t->agent, subscribe);
 
 	sip_subscribe_release(subscribe);
 	return r;

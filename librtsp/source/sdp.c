@@ -218,22 +218,17 @@ static inline int sdp_token_word(struct sdp_t* sdp, const char* escape)
 
 static inline int sdp_token_crlf(struct sdp_t* sdp)
 {
+	int i;
 	sdp_skip_space(sdp);
 
-	if('\r' == sdp->raw[sdp->offset])
+	for(i = 0; '\r' == sdp->raw[sdp->offset] || '\n' == sdp->raw[sdp->offset]; i++)
 		++sdp->offset;
 	
-	if('\n' == sdp->raw[sdp->offset])
-	{
-		++sdp->offset;
-		return 0;
-	}
-
 	// sdp end line
 	if('\0' == sdp->raw[sdp->offset])
 		return 0;
 
-	return -1;
+	return i > 0 ? 0 : -1;
 }
 
 static inline void trim_right(const char* s, int *len)
@@ -299,14 +294,16 @@ static int sdp_parse_version(struct sdp_t* sdp)
 static int sdp_parse_origin(struct sdp_t* sdp)
 {
 	char* v[6];
-	const char** vv[6];
+	char** vv[6];
 	int i, j, n[6];
 	struct sdp_origin *o;
-	static const char* default_username = "-";
 
 	o = &sdp->o;
 	memset(o, 0, sizeof(struct sdp_origin));
 	memset(n, 0, sizeof(n));
+	o->username = (char*)"-"; // default value
+	o->c.network = (char*)"IN";
+	o->c.addrtype = (char*)"IP4";
 
 	sdp_skip_space(sdp);
 	for (i = 0; i < 6 && sdp->raw[sdp->offset] && !strchr("\r\n", sdp->raw[sdp->offset]); i++)
@@ -317,21 +314,19 @@ static int sdp_parse_origin(struct sdp_t* sdp)
 	}
 
 	sdp_token_crlf(sdp);
-	if (i < 5)
-		return 0;
+	//if (i < 5)
+	//	return 0;
 
-	o->username = default_username; // default value
 	vv[0] = &o->username;
 	vv[1] = &o->session;
 	vv[2] = &o->session_version;
 	vv[3] = &o->c.network;
 	vv[4] = &o->c.addrtype;
 	vv[5] = &o->c.address;
-	for (j = 5; i > 0; j--)
+	for (j = 0; j < i; j++)
 	{
-		i--;
-		v[i][n[i]] = '\0';
-		*vv[j] = v[i];
+		v[j][n[j]] = '\0';
+		*vv[j] = v[j];
 	}
 
 	return 0;
@@ -425,7 +420,7 @@ static int sdp_parse_email(struct sdp_t* sdp)
 			void* ptr;
 			ptr = (struct sdp_email*)realloc(sdp->e.ptr, (sdp->e.capacity+8)*sizeof(struct sdp_email));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			sdp->e.ptr = ptr;
 			sdp->e.capacity += 8;
@@ -462,7 +457,7 @@ static int sdp_parse_phone(struct sdp_t* sdp)
 			void* ptr;
 			ptr = (struct sdp_phone*)realloc(sdp->p.ptr, (sdp->p.capacity+8)*sizeof(struct sdp_phone));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			sdp->p.ptr = ptr;
 			sdp->p.capacity += 8;
@@ -514,7 +509,7 @@ static int sdp_parse_connection(struct sdp_t* sdp)
 				void* ptr;
 				ptr = (struct sdp_connection*)realloc(m->c.ptr, (m->c.capacity+8)*sizeof(struct sdp_connection));
 				if(!ptr)
-					return ENOMEM;
+					return -ENOMEM;
 
 				m->c.ptr = ptr;
 				m->c.capacity += 8;
@@ -549,7 +544,7 @@ static int sdp_parse_connection(struct sdp_t* sdp)
 	trim_right(c->address, &n[2]);
 
 	// check before assign '\0'
-	if(0==sdp_token_crlf(sdp) && n[0]>0 && n[1]>0 && n[2]>0)
+	if(0==sdp_token_crlf(sdp) /* && n[0]>0 && n[1]>0 && n[2]>0*/ )
 	{
 		c->network[n[0]] = '\0';
 		c->addrtype[n[1]] = '\0';
@@ -589,7 +584,7 @@ static int sdp_parse_bandwidth(struct sdp_t* sdp)
 			void* ptr;
 			ptr = (struct sdp_bandwidth*)realloc(bs->ptr, (bs->capacity+8)*sizeof(struct sdp_bandwidth));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			bs->ptr = ptr;
 			bs->capacity += 8;
@@ -650,7 +645,7 @@ static int sdp_parse_timing(struct sdp_t* sdp)
 			void* ptr;
 			ptr = (struct sdp_timing*)realloc(sdp->t.ptr, (sdp->t.capacity+8)*sizeof(struct sdp_timing));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			sdp->t.ptr = ptr;
 			sdp->t.capacity += 8;
@@ -694,7 +689,7 @@ static int sdp_append_timing_repeat_offset(struct sdp_repeat *r, char* offset)
 			void* ptr;
 			ptr = (char**)realloc(r->offsets.ptr, (r->offsets.capacity+8)*sizeof(char*));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			r->offsets.ptr = ptr;
 			r->offsets.capacity += 8;
@@ -736,7 +731,7 @@ static int sdp_parse_repeat(struct sdp_t* sdp)
 			void* ptr;
 			ptr = (struct sdp_repeat*)realloc(t->r.ptr, (t->r.capacity+8)*sizeof(struct sdp_repeat));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			t->r.ptr = ptr;
 			t->r.capacity += 8;
@@ -761,7 +756,7 @@ static int sdp_parse_repeat(struct sdp_t* sdp)
 	r->duration = sdp->raw + sdp->offset;
 	n[1] = sdp_token_word(sdp, " \t\r\n");
 
-	while(strchr(" \t", sdp->raw[sdp->offset]))
+	while(sdp->raw[sdp->offset] && strchr(" \t", sdp->raw[sdp->offset]))
 	{
 		if(n[2] > 0 && offset)
 		{
@@ -828,17 +823,17 @@ static int sdp_parse_timezone(struct sdp_t* sdp)
 				void* ptr;
 				ptr = (struct sdp_timezone*)realloc(t->z.ptr, (t->z.capacity+8)*sizeof(struct sdp_timezone));
 				if(!ptr)
-					return ENOMEM;
+					return -ENOMEM;
 
 				t->z.ptr = ptr;
 				t->z.capacity += 8;
 			}
 
-			z = &t->z.ptr[t->r.count - N_TIMEZONE];
+			z = &t->z.ptr[t->z.count - N_TIMEZONE];
 		}
 		else
 		{
-			z = &t->z.timezones[t->r.count];
+			z = &t->z.timezones[t->z.count];
 		}
 
 		z->time = time;
@@ -939,7 +934,7 @@ static int sdp_parse_attribute(struct sdp_t* sdp)
 			void* ptr;
 			ptr = (struct sdp_attribute*)realloc(as->ptr, (as->capacity+8)*sizeof(struct sdp_attribute));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			as->ptr = ptr;
 			as->capacity += 8;
@@ -986,7 +981,7 @@ static int sdp_append_media_format(struct sdp_media *m, char* fmt)
 			void* ptr;
 			ptr = (char**)realloc(m->fmt.ptr, (m->fmt.capacity+8)*sizeof(char*));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			m->fmt.ptr = ptr;
 			m->fmt.capacity += 8;
@@ -1011,6 +1006,7 @@ static int sdp_append_media_format(struct sdp_media *m, char* fmt)
 // m=video 49170/2 RTP/AVP 31
 // c=IN IP4 224.2.1.1/127/2
 // m=video 49170/2 RTP/AVP 31
+// m=application 9 UDP/DTLS/SCTP webrtc-datachannel
 static int sdp_parse_media(struct sdp_t* sdp)
 {
 	int ret;
@@ -1025,7 +1021,7 @@ static int sdp_parse_media(struct sdp_t* sdp)
 			void* ptr;
 			ptr = (struct sdp_media*)realloc(sdp->m.ptr, (sdp->m.capacity+8)*sizeof(struct sdp_media));
 			if(!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			sdp->m.ptr = ptr;
 			sdp->m.capacity += 8;
@@ -1056,7 +1052,7 @@ static int sdp_parse_media(struct sdp_t* sdp)
 	fmt = sdp->raw + sdp->offset;
 	n[3] = sdp_token_word(sdp, " \t\r\n");
 
-	while(' ' == fmt[n[3]] || '\t' == fmt[n[3]])
+	while (' ' == fmt[n[3]] || '\t' == fmt[n[3]])
 	{
 		fmt[n[3]] = '\0';
 		ret = sdp_append_media_format(m, fmt);
@@ -1111,7 +1107,7 @@ static int sdp_parse_gb28181_ssrc(struct sdp_t* sdp)
 			void* ptr;
 			ptr = (struct sdp_attribute*)realloc(as->ptr, (as->capacity + 8) * sizeof(struct sdp_attribute));
 			if (!ptr)
-				return ENOMEM;
+				return -ENOMEM;
 
 			as->ptr = ptr;
 			as->capacity += 8;
@@ -1415,7 +1411,7 @@ int sdp_connection_get_address(struct sdp_t* sdp, char* ip, int bytes)
 		p = sdp->c.address;
 		while(*p && '/' != *p && bytes > 1)
 		{
-			*ip++ = *p;
+			*ip++ = *p++;
 			--bytes;
 		}
 
@@ -1544,6 +1540,7 @@ static inline int sdp_media_format_value(const char* format)
 	case 'v': return SDP_M_MEDIA_VIDEO;
 	case 't': return SDP_M_MEDIA_TEXT;
 	case 'm': return SDP_M_MEDIA_MESSAGE;
+	case 'w': return 0 == strcmp("webrtc-datachannel", format) ? SDP_M_MEDIA_APPLICATION : -1;
 	default: return atoi(format);
 	}
 	//if(0 == strcasecmp("video", format))
@@ -1618,7 +1615,7 @@ int sdp_media_get_connection_address(struct sdp_t* sdp, int media, char* ip, int
 		p = conn->address;
 		while(*p && '/' != *p && bytes > 1)
 		{
-			*ip++ = *p;
+			*ip++ = *p++;
 			--bytes;
 		}
 

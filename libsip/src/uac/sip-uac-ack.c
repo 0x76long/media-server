@@ -22,6 +22,9 @@ int sip_uac_ack_3456xx(struct sip_uac_transaction_t* t, const struct sip_message
 		return -1;
 	}
 
+#if defined(SIP_KEEP_DIALOG_REQUET_URI)
+	ack->ptr.ptr = sip_uri_clone(ack->ptr.ptr, ack->ptr.end, &ack->u.c.uri, &t->req->u.c.uri);
+#endif
 	assert(ack->u.c.uri.scheme.n == 3 && 0 == strncmp("sip", ack->u.c.uri.scheme.p, 3));
 	if (cstrcmp(&ack->u.c.method, SIP_METHOD_ACK))
 	{
@@ -112,13 +115,14 @@ int sip_uac_ack_3456xx(struct sip_uac_transaction_t* t, const struct sip_message
 }
 
 // 17.1.1.3 Construction of the ACK Request(Section 13.) (p129)
-int sip_uac_ack(struct sip_uac_transaction_t* invite, const void* data, int bytes)
+int sip_uac_ack(struct sip_uac_transaction_t* invite, const void* data, int bytes, const char* content_type)
 {
 	int r;
 	char ptr[1024];
 	char contact[1024];
 	struct sip_message_t* ack;
-	
+	const struct cstring_t* h;
+
 	if (!invite->dialog || !cstrvalid(&invite->dialog->remote.target.host))
 		return -1;
 
@@ -131,7 +135,12 @@ int sip_uac_ack(struct sip_uac_transaction_t* invite, const void* data, int byte
 		return r;
 	}
 
+#if defined(SIP_KEEP_DIALOG_REQUET_URI)
+	ack->ptr.ptr = sip_uri_clone(ack->ptr.ptr, ack->ptr.end, &ack->u.c.uri, &invite->req->u.c.uri);
+#endif
 	assert(ack->u.c.uri.scheme.n >= 3 && 0 == strncmp("sip", ack->u.c.uri.scheme.p, 3));
+
+	sip_message_add_header(ack, "Content-Type", content_type);
 
 	// 8.1.1.7 Via (p39)
 	// The branch parameter value MUST be unique across space and time for

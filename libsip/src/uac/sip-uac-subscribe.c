@@ -24,19 +24,27 @@ int sip_uac_subscribe_onreply(struct sip_uac_transaction_t* t, const struct sip_
 		subscribe = sip_subscribe_internal_fetch(t->agent, reply, &t->req->event, 1, &added);
 
 		// call once only
-		if (added)
+		//if (added)
 			r = t->onsubscribe(t->param, reply, t, subscribe, reply->u.s.code, &subscribe->evtsession);
+	}
+	else
+	{
+		// for subscribe expires 0, to sip_subscribe_remove
+		subscribe = sip_subscribe_fetch(t->agent, &t->req->callid, &t->req->from.tag, &t->req->to.tag, &t->req->event);
+
+		r = t->onsubscribe(t->param, reply, t, subscribe, reply->u.s.code, subscribe ? &subscribe->evtsession : NULL);
 	}
 
 	if (subscribe)
 	{
-		// delete subscribe if expires is 0
-		h = sip_message_get_header_by_name(t->req, "Expires");
-		if (h && 0 == atoi(h->p))
-		{
-			sip_subscribe_remove(t->agent, subscribe);
-			assert(1 == subscribe->ref);
-		}
+		// It's user due to remove subscribe on expires 0 
+		//// delete subscribe if expires is 0
+		//h = sip_message_get_header_by_name(t->req, "Expires");
+		//if (h && 0 == cstrtol(h, NULL, 10))
+		//{
+		//	sip_subscribe_remove(t->agent, subscribe);
+		//	assert(1 == subscribe->ref);
+		//}
 
 		sip_subscribe_release(subscribe);
 	}
@@ -51,13 +59,19 @@ int sip_uac_notify_onreply(struct sip_uac_transaction_t* t, const struct sip_mes
 
 	subscribe = sip_subscribe_fetch(t->agent, &reply->callid, &reply->from.tag, &reply->to.tag, &t->req->event);
 	if (!subscribe)
-		return 0; // receive notify message before subscribe reply, discard it
+	{
+		//return 0; // receive notify message before subscribe reply, discard it
+		
+		// custom notify message ???
+		assert(t->req && !cstrvalid(&t->req->to.tag));
+		return t->onreply(t->param, reply, t, reply->u.s.code);
+	}
 
 	// NOTICE: ignore notify before subscribe created
-	r = t->onreply(t->param, reply, t, 200 <= reply->u.s.code);
+	r = t->onreply(t->param, reply, t, reply->u.s.code);
 
-	if (0 == cstrcmp(&reply->substate.state, SIP_SUBSCRIPTION_STATE_TERMINATED))
-		sip_subscribe_remove(t->agent, subscribe);
+	//if (0 == cstrcmp(&reply->substate.state, SIP_SUBSCRIPTION_STATE_TERMINATED))
+	//	sip_subscribe_remove(t->agent, subscribe);
 
 	sip_subscribe_release(subscribe);
 	return r;
@@ -88,9 +102,10 @@ struct sip_uac_transaction_t* sip_uac_resubscribe(struct sip_agent_t* sip, struc
 	struct sip_message_t* req;
 	struct sip_uac_transaction_t* t;
 
-	if (!sip || !subscribe)
+	if (!sip || !subscribe || !subscribe->dialog)
 		return NULL;
 
+	++subscribe->dialog->local.id;
 	req = sip_message_create(SIP_MESSAGE_REQUEST);
 	if (0 != sip_message_init2(req, SIP_METHOD_SUBSCRIBE, subscribe->dialog)
 		|| 0 != sip_message_add_header(req, SIP_HEADER_EVENT, subscribe->event)

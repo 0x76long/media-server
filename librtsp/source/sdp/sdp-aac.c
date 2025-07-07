@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 
 // RFC6416 RTP Payload Format for MPEG-4 Audio/Visual Streams
 int sdp_aac_latm(uint8_t *data, int bytes, const char* proto, unsigned short port, int payload, int sample_rate, int channel_count, const void* extra, int extra_size)
@@ -17,8 +18,8 @@ int sdp_aac_latm(uint8_t *data, int bytes, const char* proto, unsigned short por
 	// this parameter SHALL NOT be considered as the definitive sampling rate.
 	// profile-level-id --> ISO/IEC 14496-3:2009 audioProfileLevelIndication values
 	static const char* pattern =
-		"m=audio %hu %s %d\n"
-		"a=rtpmap:%d MP4A-LATM/%d/%d\n"
+		"m=audio %hu %s %d\r\n"
+		"a=rtpmap:%d MP4A-LATM/%d/%d\r\n"
 		"a=fmtp:%d profile-level-id=%d;object=%d;cpresent=0;config=";
 
 	int r, n;
@@ -50,11 +51,14 @@ int sdp_aac_latm(uint8_t *data, int bytes, const char* proto, unsigned short por
 		payload, mpeg4_aac_profile_level(&aac), aac.profile);
 
 	if (n + r * 2 + 1 > bytes)
-		return -1; // don't have enough memory
-	n += base16_encode((char*)data + n, config, r);
+		return -ENOMEM; // don't have enough memory
+	n += (int)base16_encode((char*)data + n, config, r);
 
-	if (n < bytes)
-		data[n++] = '\n';
+	if (n + 2 > bytes)
+		return -ENOMEM; // don't have enough memory
+
+	data[n++] = '\r';
+	data[n++] = '\n';
 	return n;
 }
 
@@ -62,15 +66,16 @@ int sdp_aac_latm(uint8_t *data, int bytes, const char* proto, unsigned short por
 int sdp_aac_generic(uint8_t *data, int bytes, const char* proto, unsigned short port, int payload, int sample_rate, int channel_count, const void* extra, int extra_size)
 {
 	// a=rtpmap:<payload type> <encoding name>/<clock rate>[/<encoding parameters > ]
-	// For audio streams, <encoding parameters> specifies the number of audio channels
+	// For audio streams, <encoding parameters> specifies the number of audio channels, default value is 1.
+	
 	// streamType: AudioStream --> ISO/IEC 14496-1:2010 streamType Values
 	// profile-level-id --> ISO/IEC 14496-3:2009 audioProfileLevelIndication values
 	// When using SDP, the clock rate of the RTP time stamp MUST be expressed using the "rtpmap" attribute. 
 	// If an MPEG-4 audio stream is transported, the rate SHOULD be set to the same value as the sampling rate of the audio stream. 
 	// If an MPEG-4 video stream transported, it is RECOMMENDED that the rate be set to 90 kHz.
 	static const char* pattern =
-		"m=audio %hu %s %d\n"
-		"a=rtpmap:%d mpeg4-generic/%d/%d\n"
+		"m=audio %hu %s %d\r\n"
+		"a=rtpmap:%d mpeg4-generic/%d/%d\r\n"
 		"a=fmtp:%d streamtype=5;profile-level-id=%d;mode=AAC-hbr;sizeLength=13;indexLength=3;indexDeltaLength=3;config=";
 
 	int r, n;
@@ -87,14 +92,17 @@ int sdp_aac_generic(uint8_t *data, int bytes, const char* proto, unsigned short 
 	n = snprintf((char*)data, bytes, pattern, port, proto && *proto ? proto : "RTP/AVP", payload, payload, sample_rate, channel_count, payload, mpeg4_aac_profile_level(&aac));
 
 	if (n + extra_size * 2 + 1 > bytes)
-		return -1; // don't have enough memory
+		return -ENOMEM; // don't have enough memory
 
 	// For MPEG-4 Audio streams, config is the audio object type specific
 	// decoder configuration data AudioSpecificConfig()
-	n += base16_encode((char*)data + n, extra, extra_size);
+	n += (int)base16_encode((char*)data + n, extra, extra_size);
 
-	if (n < bytes)
-		data[n++] = '\n';
+	if (n + 2 > bytes)
+		return -ENOMEM; // don't have enough memory
+
+	data[n++] = '\r';
+	data[n++] = '\n';
 	return n;
 }
 
@@ -107,7 +115,7 @@ int sdp_aac_latm_load(uint8_t* data, int bytes, const char* config)
 
 	n = (int)strlen(config);
 	if (n / 2 > sizeof(buf))
-		return -1;
+		return -E2BIG;
 
 	n = (int)base16_decode(buf, config, n);
 	n = mpeg4_aac_stream_mux_config_load(buf, n, &aac);
@@ -120,7 +128,7 @@ int sdp_aac_mpeg4_load(uint8_t* data, int bytes, const char* config)
 	int n;
 	n = (int)strlen(config);
 	if (n / 2 > bytes)
-		return -1;
+		return -E2BIG;
 	
 	return (int)base16_decode(data, config, n);
 }
@@ -135,9 +143,9 @@ void sdp_aac_test(void)
 	//const unsigned char aachbr[] = { "11B0" }; // 48000/6 streamtype=5; profile-level-id=16
 
 	const uint8_t config[] = { 0x11, 0x90, };
-	//const char* mpeg4_generic_sdp = "m=audio 0 RTP/AVP 96\na=rtpmap:96 mpeg4-generic/48000/2\na=fmtp:96 streamtype=5; profile-level-id=15; mode=AAC-hbr; config=1190; SizeLength=13; IndexLength=3; IndexDeltaLength=3; Profile=1\n";
-	const char* mpeg4_generic_sdp = "m=audio 0 RTP/AVP 96\na=rtpmap:96 mpeg4-generic/48000/2\na=fmtp:96 streamtype=5;profile-level-id=41;mode=AAC-hbr;sizeLength=13;indexLength=3;indexDeltaLength=3;config=1190\n";
-	//const char* mp4a_latm_sdp = "m=audio 0 RTP/AVP 96\na=rtpmap:96 MP4A-LATM/48000/2\na=fmtp:96 profile-level-id=9;object=8;cpresent=0;config=9128B1071070\n";
+	//const char* mpeg4_generic_sdp = "m=audio 0 RTP/AVP 96\r\na=rtpmap:96 mpeg4-generic/48000/2\r\na=fmtp:96 streamtype=5; profile-level-id=15; mode=AAC-hbr; config=1190; SizeLength=13; IndexLength=3; IndexDeltaLength=3; Profile=1\r\n";
+	const char* mpeg4_generic_sdp = "m=audio 0 RTP/AVP 96\r\na=rtpmap:96 mpeg4-generic/48000/2\r\na=fmtp:96 streamtype=5;profile-level-id=41;mode=AAC-hbr;sizeLength=13;indexLength=3;indexDeltaLength=3;config=1190\r\n";
+	//const char* mp4a_latm_sdp = "m=audio 0 RTP/AVP 96\r\na=rtpmap:96 MP4A-LATM/48000/2\r\na=fmtp:96 profile-level-id=9;object=8;cpresent=0;config=9128B1071070\r\n";
 	uint8_t buffer[256];
 	//struct mpeg4_aac_t aac;
 	//int n;

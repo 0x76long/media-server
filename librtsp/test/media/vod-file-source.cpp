@@ -4,8 +4,8 @@
 #include <string.h>
 #include <assert.h>
 
-VodFileSource::VodFileSource(std::shared_ptr<IFileReader> reader, std::shared_ptr<AVPacketQueue> pkts)
-	:m_status(STOP), m_running(true), m_speed(128), m_clock(0), m_timestamp(0), m_reader(reader), m_avpkts(pkts)
+VodFileSource::VodFileSource(std::shared_ptr<IFileReader> reader, std::shared_ptr<IListener> listener)
+	:m_status(STOP), m_running(true), m_speed(128), m_clock(0), m_timestamp(0), m_reader(reader), m_listener(listener)
 {
 	thread_create(&m_thread, Worker, this);
 }
@@ -27,10 +27,12 @@ int VodFileSource::Worker()
 {
 	int r = 0;
 	struct avpacket_t* pkt = NULL;
+	if (!m_reader)
+		return -1;
 
 	do 
 	{
-		while ( (m_status == STOP || m_status == PAUSE) && m_running)
+		while ((m_status == STOP || m_status == PAUSE) && m_running)
 			m_event.Wait();
 
 		while (m_status == PLAY && 0 == r && m_running)
@@ -41,10 +43,11 @@ int VodFileSource::Worker()
 				r = m_reader->Read(&pkt);
 				if (r <= 0)
 					break; // all done
+				r = 0; // 1 -> 0
 			}
 
-			uint64_t now = system_clock();
-			uint64_t timestamp = 0 == pkt->dts || -1 == pkt->dts ? pkt->pts : pkt->dts;
+			uint64_t now = system_time();
+			uint64_t timestamp = pkt ? (0 == pkt->dts || -1 == pkt->dts ? pkt->pts : pkt->dts) : m_timestamp;
 			
 			if (0 == m_clock || now < m_clock || timestamp < m_timestamp)
 			{
@@ -55,7 +58,8 @@ int VodFileSource::Worker()
 			int64_t diff = (int64_t)((timestamp - m_timestamp) - ((now - m_clock) * m_speed / 128));
 			if (diff <= 0 || m_event.TimeWait((int)(diff * 128 / m_speed)))
 			{
-                r = m_avpkts->Push(pkt);
+				if (m_listener)
+					r = m_listener->OnPacket(pkt);
 				avpacket_release(pkt);
 				pkt = NULL; // reset
 			}

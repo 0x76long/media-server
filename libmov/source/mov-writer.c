@@ -274,8 +274,8 @@ int mov_writer_write(struct mov_writer_t* writer, int track, const void* data, s
 	sample->offset = mov_buffer_tell(&mov->io);
 	mov_buffer_write(&mov->io, data, bytes);
 
-    if (INT64_MIN == mov->track->start_dts)
-        mov->track->start_dts = sample->dts;
+	if (INT64_MIN == mov->track->start_dts)
+		mov->track->start_dts = sample->dts;
 	writer->mdat_size += bytes; // update media data size
 	return mov_buffer_error(&mov->io);
 }
@@ -318,6 +318,7 @@ int mov_writer_add_subtitle(struct mov_writer_t* writer, uint8_t object, const v
 {
 	struct mov_t* mov;
 	struct mov_track_t* track;
+	uint32_t i;
 
 	mov = &writer->mov;
     track = mov_add_track(mov);
@@ -326,6 +327,9 @@ int mov_writer_add_subtitle(struct mov_writer_t* writer, uint8_t object, const v
 
     if (0 != mov_add_subtitle(track, &mov->mvhd, 1000, object, extra_data, extra_data_size))
         return -ENOMEM;
+
+	for (i = 1; object == MOV_OBJECT_CHAPTER && i < mov->mvhd.next_track_ID; i++)
+		mov->tracks[i - 1].chpl_track = mov->mvhd.next_track_ID;
 
     mov->mvhd.next_track_ID++;
 	return mov->track_count++;

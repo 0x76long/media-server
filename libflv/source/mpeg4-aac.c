@@ -1,6 +1,7 @@
 #include "mpeg4-aac.h"
 #include <assert.h>
 #include <string.h>
+#include <stdio.h>
 
 int mpeg4_aac_adts_pce_load(const uint8_t* data, size_t bytes, struct mpeg4_aac_t* aac);
 int mpeg4_aac_adts_pce_save(uint8_t* data, size_t bytes, const struct mpeg4_aac_t* aac);
@@ -168,20 +169,30 @@ int mpeg4_aac_stream_mux_config_load(const uint8_t* data, size_t bytes, struct m
 // ISO/IEC 14496-3:2009(E) Table 1.42 - Syntax of StreamMuxConfig() (p83)
 int mpeg4_aac_stream_mux_config_save(const struct mpeg4_aac_t* aac, uint8_t* data, size_t bytes)
 {
+	int profile;
+	int frequncy;
 	if (bytes < 6) return -1;
+
+	profile = aac->sbr ? aac->extension_audio_object_type : aac->profile;
+	frequncy = mpeg4_aac_audio_frequency_from(aac->extension_frequency);
+	frequncy = (aac->sbr || aac->ps) && -1 != frequncy ? frequncy : 0;
 
 	assert(aac->profile > 0 && aac->profile < 31);
 	assert(aac->channel_configuration >= 0 && aac->channel_configuration <= 7);
 	assert(aac->sampling_frequency_index >= 0 && aac->sampling_frequency_index <= 0xc);
 	data[0] = 0x40; // 0-audioMuxVersion(1), 1-allStreamsSameTimeFraming(1), 0-numSubFrames(6)
-	//data[1] = 0x00 | ((aac->profile >> 4) & 0x01); // 0-numProgram(4), 0-numLayer(3)
-	//data[2] = ((aac->profile & 0x0F) << 4) | (aac->sampling_frequency_index & 0x0F);
-	data[1] = 0x00;
-	data[2] = 0x20 | (aac->sampling_frequency_index & 0x0F); // AAC_LC profile
-	data[3] = ((aac->channel_configuration & 0x0F) << 4) | 0; // 0-GASpecificConfig(3), 0-frameLengthType(1)
+	data[1] = 0x00 | ((profile >> 4) & 0x01); // 0-numProgram(4), 0-numLayer(3)
+	data[2] = ((profile & 0x0F) << 4) | (aac->sampling_frequency_index & 0x0F);
+	data[3] = ((aac->channel_configuration & 0x0F) << 4) | (-1 != frequncy ? (frequncy & 0x0F) : 0); // 0-GASpecificConfig(3), 0-frameLengthType(1)
 	data[4] = 0x3F; // 0-frameLengthType(2), 111111-latmBufferFullness(6)
 	data[5] = 0xC0; // 11-latmBufferFullness(2), 0-otherDataPresent, 0-crcCheckPresent
 	return 6;
+}
+
+int mpeg4_aac_codecs(const struct mpeg4_aac_t* aac, char* codecs, size_t bytes)
+{
+	// https://tools.ietf.org/html/rfc6381#section-3.4
+	return snprintf(codecs, bytes, "mp4a.40.%u", (unsigned int)aac->profile);
 }
 
 // Table 1.6 ¨C Levels for the High Quality Audio Profile
@@ -300,6 +311,7 @@ void mpeg4_aac_test(void)
 	const unsigned char adts[] = { 0xFF, 0xF1, 0x5C, 0x40, 0x01, 0x1F, 0xFC };
 //	const unsigned char ascsbr[] = { 0x13, 0x10, 0x56, 0xe5, 0x9d, 0x48, 0x00 };
 	const unsigned char ascsbr[] = { 0x2b, 0x92, 0x08, 0x00 };
+	const unsigned char asc8ch[] = { 0x12, 0x00, 0x05, 0x08, 0x48, 0x00, 0x20, 0x00, 0xC6, 0x40, 0x0D, 0x4C, 0x61, 0x76, 0x63, 0x35, 0x38, 0x2E, 0x39, 0x37, 0x2E, 0x31, 0x30, 0x32, 0x56, 0xE5, 0x00 };
 	// https://datatracker.ietf.org/doc/html/rfc6416#page-25
 	const unsigned char mux1[] = { 0x40, 0x00, 0x8B, 0x18, 0x38, 0x83, 0x80 }; // 6 kbit/s CELP
 	const unsigned char mux2[] = { 0x40, 0x00, 0x26, 0x20, 0x3f, 0xc0 }; // 64 kbit/s AAC LC Stereo
@@ -332,6 +344,10 @@ void mpeg4_aac_test(void)
 
 	//assert(sizeof(ascsbr) == mpeg4_aac_audio_specific_config_load(ascsbr, sizeof(ascsbr), &aac));
 	//assert(2 == aac.profile && 6 == aac.sampling_frequency_index && 1 == aac.channel_configuration);
+
+	assert(sizeof(asc8ch) == mpeg4_aac_audio_specific_config_load(asc8ch, sizeof(asc8ch), &aac));
+	assert(2 == aac.profile && 4 == aac.sampling_frequency_index && 8 == aac.channels);
+	assert(29 == mpeg4_aac_adts_save(&aac, 1, data, sizeof(data)));
 
 	memset(&aac, 0, sizeof(aac));
 	mpeg4_aac_stream_mux_config_load(mux1, sizeof(mux1), &aac);

@@ -3,7 +3,6 @@
 #include "rtp-profile.h"
 #include "rtcp-header.h"
 #include "sdp-a-fmtp.h"
-#include "mpeg-ts-proto.h"
 #include "mpeg-ps.h"
 #include "mpeg-ts.h"
 #include "avbsf.h"
@@ -42,6 +41,7 @@ struct rtp_payload_info_t
     uint32_t base; // RTP-Info timestamp
 
     uint32_t last; // last rtp packet timestamp
+    int64_t timestamp; // rtp timestamp extend to 64bit
     int64_t pts; // last mapped rtp packet timestamp
 
     struct rtp_demuxer_t* rtp;
@@ -51,6 +51,7 @@ struct rtp_payload_info_t
     {
         struct sdp_a_fmtp_h264_t h264;
         struct sdp_a_fmtp_h265_t h265;
+        struct sdp_a_fmtp_h266_t h266;
         struct sdp_a_fmtp_mpeg4_t mpeg4;
 
         struct mpeg4_aac_t aac;
@@ -98,6 +99,7 @@ int sdp_aac_latm_load(uint8_t* data, int bytes, const char* config);
 int sdp_aac_mpeg4_load(uint8_t* data, int bytes, const char* config);
 int sdp_h264_load(uint8_t* data, int bytes, const char* config);
 int sdp_h265_load(uint8_t* data, int bytes, const char* vps, const char* sps, const char* pps, const char* sei);
+int sdp_h266_load(uint8_t* data, int bytes, const char* vps, const char* sps, const char* pps, const char* sei, const char* dci);
 
 static int rtsp_demuxer_avpbs_onpacket(void* param, struct avpacket_t* pkt)
 {
@@ -112,7 +114,7 @@ static int rtsp_demuxer_mpeg2_fetch_stream(struct rtp_payload_info_t* pt, int pi
 
     mpeg2 = avpayload_find_by_mpeg2((uint8_t)codecid);
     if (mpeg2 < 0)
-        return -1;
+        return -EPROTONOSUPPORT;
 
     for (i = 0; i < sizeof(pt->tracks) / sizeof(pt->tracks[0]); i++)
     {
@@ -121,7 +123,7 @@ static int rtsp_demuxer_mpeg2_fetch_stream(struct rtp_payload_info_t* pt, int pi
     }
 
     if (i >= sizeof(pt->tracks) / sizeof(pt->tracks[0]))
-        return -1;
+        return -E2BIG;
 
     if(pt->tracks[i].codec != s_payloads[mpeg2].codecid && pt->tracks[i].bs && pt->tracks[i].filter)
         pt->tracks[i].bs->destroy(&pt->tracks[i].filter);
@@ -144,11 +146,12 @@ static inline int rtsp_demuxer_mpegts_onpacket(void* param, int program, int tra
     struct rtp_payload_info_t* pt;
 
 #if defined(FIX_DAHUA_AAC_FROM_G711)
-    if ((codecid == PSI_STREAM_AUDIO_G711A || codecid == PSI_STREAM_AUDIO_G711U) 
+    if ((codecid == PSI_STREAM_AUDIO_G711A || codecid == PSI_STREAM_AUDIO_G711U)
         && bytes > 7 && 0xFF == ((uint8_t*)data)[0] && 0xF0 == (((uint8_t*)data)[1] & 0xF0))
     {
-        for(i = 0; i + 7 < bytes;)
-            i += mpeg4_aac_adts_frame_length((const uint8_t*)data + i, bytes - i);
+        int n = 7; // fix n = 0
+        for (i = 0; i + 7 < bytes && n >= 7; i += n)
+            n = mpeg4_aac_adts_frame_length((const uint8_t*)data + i, bytes - i);
         codecid = i == bytes ? PSI_STREAM_AAC : codecid; // fix it
     }
 #endif
@@ -237,6 +240,7 @@ static inline int rtsp_demuxer_onpspacket(void* param, const void* packet, int b
     int r, n;
     struct rtp_payload_info_t* pt;
     pt = (struct rtp_payload_info_t*)param;
+#if 1
     if (pt->ptr.len > 0)
     {
         r = rtsp_demuxer_merge_ps_buffer(pt, packet, bytes);
@@ -257,6 +261,26 @@ static inline int rtsp_demuxer_onpspacket(void* param, const void* packet, int b
 
     (void)timestamp, (void)flags; //ignore
     return r;
+#else
+    if (!pt->tracks[0].bs || !pt->tracks[0].filter)
+    {
+        pt->tracks[0].codec = AVCODEC_DATA_MP2P;
+        pt->tracks[0].bs = avpbs_find(AVCODEC_DATA_MP2P);
+        if (pt->tracks[0].bs)
+            pt->tracks[0].filter = pt->tracks[0].bs->create(0, AVCODEC_DATA_MP2P, NULL, 0, rtsp_demuxer_avpbs_onpacket, pt);
+    }
+
+    // RTP timestamp => PTS/DTS
+    if (0 == pt->last && INT64_MIN == pt->pts)
+        pt->timestamp = timestamp;
+    else
+        pt->timestamp += (int32_t)(timestamp - pt->last);
+    pt->last = timestamp;
+    pt->pts = pt->timestamp * 1000 / pt->frequency;
+
+    flags = flags ? AVPACKET_FLAG_KEY : 0;
+    return pt->tracks[0].bs->input(pt->tracks[0].filter, pt->pts, pt->pts, (const uint8_t*)packet, (int)bytes, flags);
+#endif
 }
 
 static inline int rtsp_demuxer_onrtppacket(void* param, const void* data, int bytes, uint32_t timestamp, int flags)
@@ -266,16 +290,12 @@ static inline int rtsp_demuxer_onrtppacket(void* param, const void* data, int by
     pt = (struct rtp_payload_info_t*)param;
 
     // RTP timestamp => PTS/DTS
-    if (0 == pt->last && 0 == pt->pts)
-    {
-        pt->last = timestamp;
-        pt->pts = 0;
-    }
+    if (0 == pt->last && INT64_MIN == pt->pts)
+        pt->timestamp = timestamp;
     else
-    {
-        pt->pts += ((int64_t)(int32_t)(timestamp - pt->last)) * 1000 / pt->frequency;
-        pt->last = timestamp;
-    }
+        pt->timestamp += (int32_t)(timestamp - pt->last);
+    pt->last = timestamp;
+    pt->pts = pt->timestamp * 1000 / pt->frequency;
 
     r = -1;
     if (pt->bs && pt->filter)
@@ -295,16 +315,12 @@ static inline int rtsp_demuxer_onh2645nalu(void* param, const void* data, int by
     pt = (struct rtp_payload_info_t*)param;
 
     // RTP timestamp => PTS/DTS
-    if (0 == pt->last && 0 == pt->pts)
-    {
-        pt->last = timestamp;
-        pt->pts = 0;
-    }
+    if (0 == pt->last && INT64_MIN == pt->pts)
+        pt->timestamp = timestamp;
     else
-    {
-        pt->pts += ((int64_t)(int32_t)(timestamp - pt->last)) * 1000 / pt->frequency;
-        pt->last = timestamp;
-    }
+        pt->timestamp += (int32_t)(timestamp - pt->last);
+    pt->last = timestamp;
+    pt->pts = pt->timestamp * 1000 / pt->frequency;
 
     assert(pt->avbsf && pt->h2645);
     if (pt->avbsf && pt->h2645)
@@ -332,11 +348,24 @@ static int rtsp_demuxer_onh2645packet(void* param, int64_t pts, int64_t dts, con
 
 static int rtsp_demuxer_payload_close(struct rtp_payload_info_t* pt)
 {
+    int i;
+
     if (pt->ptr.ptr)
     {
         assert(pt->ptr.cap > 0);
         free(pt->ptr.ptr);
         pt->ptr.ptr = NULL;
+    }
+
+    for (i = 0; i < sizeof(pt->tracks) / sizeof(pt->tracks[0]); i++)
+    {
+        if (pt->tracks[i].bs && pt->tracks[i].filter)
+        {
+            pt->tracks[i].bs->destroy(&pt->tracks[i].filter);
+            pt->tracks[i].filter = NULL;
+            pt->tracks[i].bs = NULL;
+            pt->tracks[i].pid = 0;
+        }
     }
 
     if (pt->bs && pt->filter)
@@ -380,7 +409,7 @@ int rtsp_demuxer_add_payload(struct rtsp_demuxer_t* demuxer, int frequency, int 
     int (*onpacket)(void* param, const void* data, int bytes, uint32_t timestamp, int flags);
 
     if (demuxer->count >= sizeof(demuxer->pt) / sizeof(demuxer->pt[0]))
-        return -1; // too many payload type
+        return -E2BIG; // too many payload type
 
     avp = avpayload_find_by_rtp((uint8_t)payload, encoding);
     // fixme: ffmpeg g711u sample rate 0
@@ -394,6 +423,7 @@ int rtsp_demuxer_add_payload(struct rtsp_demuxer_t* demuxer, int frequency, int 
     pt->extra = demuxer->ptr + demuxer->off;
     pt->extra_bytes = 0;
     pt->ctx = demuxer;
+    pt->pts = INT64_MIN;
 
     if (RTP_PAYLOAD_MP2T == payload)
     {
@@ -416,7 +446,7 @@ int rtsp_demuxer_add_payload(struct rtsp_demuxer_t* demuxer, int frequency, int 
         case AVCODEC_VIDEO_H264:
             if (fmtp && *fmtp && 0 == sdp_a_fmtp_h264(fmtp, &payload, &pt->fmtp.h264))
                 pt->extra_bytes = sdp_h264_load(pt->extra, len, pt->fmtp.h264.sprop_parameter_sets);
-            pt->avbsf = avbsf_h264();
+            pt->avbsf = avbsf_find(AVCODEC_VIDEO_H264);
             pt->h2645 = pt->avbsf->create(pt->extra, pt->extra_bytes, rtsp_demuxer_onh2645packet, pt);
             onpacket = rtsp_demuxer_onh2645nalu;
             break;
@@ -424,7 +454,15 @@ int rtsp_demuxer_add_payload(struct rtsp_demuxer_t* demuxer, int frequency, int 
         case AVCODEC_VIDEO_H265:
             if (fmtp && *fmtp && 0 == sdp_a_fmtp_h265(fmtp, &payload, &pt->fmtp.h265))
                 pt->extra_bytes = sdp_h265_load(pt->extra, len, pt->fmtp.h265.sprop_vps, pt->fmtp.h265.sprop_sps, pt->fmtp.h265.sprop_pps, pt->fmtp.h265.sprop_sei);
-            pt->avbsf = avbsf_h265();
+            pt->avbsf = avbsf_find(AVCODEC_VIDEO_H265);
+            pt->h2645 = pt->avbsf->create(pt->extra, pt->extra_bytes, rtsp_demuxer_onh2645packet, pt);
+            onpacket = rtsp_demuxer_onh2645nalu;
+            break;
+
+        case AVCODEC_VIDEO_H266:
+            if (fmtp && *fmtp && 0 == sdp_a_fmtp_h266(fmtp, &payload, &pt->fmtp.h266))
+                pt->extra_bytes = sdp_h266_load(pt->extra, len, pt->fmtp.h266.sprop_vps, pt->fmtp.h266.sprop_sps, pt->fmtp.h266.sprop_pps, pt->fmtp.h266.sprop_sei, pt->fmtp.h266.sprop_dci);
+            pt->avbsf = avbsf_find(AVCODEC_VIDEO_H266);
             pt->h2645 = pt->avbsf->create(pt->extra, pt->extra_bytes, rtsp_demuxer_onh2645packet, pt);
             onpacket = rtsp_demuxer_onh2645nalu;
             break;
@@ -464,7 +502,7 @@ int rtsp_demuxer_add_payload(struct rtsp_demuxer_t* demuxer, int frequency, int 
     if (!pt->rtp || (pt->bs && !pt->filter))
     {
         rtsp_demuxer_payload_close(pt);
-        return -1;
+        return -ENOMEM;
     }
 
     demuxer->count++;
@@ -504,15 +542,17 @@ int rtsp_demuxer_rtpinfo(struct rtsp_demuxer_t* demuxer, uint16_t seq, uint32_t 
     if (demuxer->idx >= demuxer->count || demuxer->idx < 0)
     {
         assert(0);
-        return -1;
+        return -ENOENT;
     }
 
     pt = &demuxer->pt[demuxer->idx];
     pt->seq = seq;
     pt->base = timestamp;
-    if (0 == pt->last)
-        pt->last = timestamp;
-    pt->pts = ((int64_t)(int32_t)(pt->last - timestamp)) * 1000 / pt->frequency;
+
+    // fixme
+    //if (0 == pt->last)
+    //    pt->last = timestamp;
+    //pt->pts = ((int64_t)(int32_t)(pt->last - timestamp)) * 1000 / pt->frequency;
     return 0;
 }
 
@@ -547,11 +587,23 @@ int rtsp_demuxer_input(struct rtsp_demuxer_t* demuxer, const void* data, int byt
 
 int rtsp_demuxer_rtcp(struct rtsp_demuxer_t* demuxer, void* buf, int len)
 {
-    if (demuxer->idx >= demuxer->count || demuxer->idx < 0)
+    if (!demuxer || demuxer->idx >= demuxer->count || demuxer->idx < 0 || !demuxer->pt[demuxer->idx].rtp)
+    {
+        assert(0);
+        return -ENOENT;
+    }
+
+    return rtp_demuxer_rtcp(demuxer->pt[demuxer->idx].rtp, buf, len);
+}
+
+int rtsp_demuxer_stats(struct rtsp_demuxer_t* demuxer, int* lost, int* late, int* misorder, int* duplicate)
+{
+    if (!demuxer || demuxer->idx >= demuxer->count || demuxer->idx < 0 || !demuxer->pt[demuxer->idx].rtp)
     {
         assert(0);
         return -1;
     }
 
-    return rtp_demuxer_rtcp(demuxer->pt[demuxer->idx].rtp, buf, len);
+    rtp_demuxer_stats(demuxer->pt[demuxer->idx].rtp, lost, late, misorder, duplicate);
+    return 0;
 }

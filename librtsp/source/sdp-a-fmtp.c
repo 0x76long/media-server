@@ -231,7 +231,7 @@ int sdp_a_fmtp_h264(const char* fmtp, int *format, struct sdp_a_fmtp_h264_t *h26
 // a=fmtp:98 profile-id=1; sprop-vps=<video parameter sets data>
 int sdp_a_fmtp_h265(const char* fmtp, int *format, struct sdp_a_fmtp_h265_t *h265)
 {
-	size_t nc, vc;
+	size_t nc;
 	const char *p1, *p2;
 	const char *p = fmtp;
 
@@ -257,7 +257,7 @@ int sdp_a_fmtp_h265(const char* fmtp, int *format, struct sdp_a_fmtp_h265_t *h26
 		while (' ' == *p) p++; // skip space
 
 		nc = (size_t)(p1 - p); // ptrdiff_t to size_t
-		vc = (size_t)(p2 - p1 - 1); // ptrdiff_t to size_t
+		//vc = (size_t)(p2 - p1 - 1); // ptrdiff_t to size_t
 		switch (*p)
 		{
 		case 'i':
@@ -287,6 +287,87 @@ int sdp_a_fmtp_h265(const char* fmtp, int *format, struct sdp_a_fmtp_h265_t *h26
 			{
 			}
 			else if (0 == strncasecmp("sprop-sei", p, nc))
+			{
+			}
+			break;
+
+		case 't':
+			// tier-flag
+			break;
+		}
+
+		p = *p2 ? p2 + 1 : p2;
+	}
+
+	return 0;
+}
+
+// RFC9328 RTP Payload Format for Versatile Video Coding(VVC)
+// m=video 49170 RTP/AVP 98
+// a=rtpmap:98 H266/90000
+// a=fmtp:98 profile-id=1; sprop-vps=<video parameter sets data>
+int sdp_a_fmtp_h266(const char* fmtp, int* format, struct sdp_a_fmtp_h266_t* h266)
+{
+	size_t nc;
+	const char* p1, * p2;
+	const char* p = fmtp;
+
+	// payload type
+	*format = atoi(p);
+	p1 = strchr(p, ' ');
+	if (!p1 || ' ' != *p1)
+		return -1;
+
+	h266->flags = 0;
+	assert(' ' == *p1);
+	p = p1 + 1;
+	while (*p)
+	{
+		p1 = strchr(p, '=');
+		if (!p1 || '=' != *p1)
+			return -1;
+
+		p2 = strchr(p1 + 1, ';');
+		if (!p2)
+			p2 = p1 + strlen(p1);
+
+		while (' ' == *p) p++; // skip space
+
+		nc = (size_t)(p1 - p); // ptrdiff_t to size_t
+		//vc = (size_t)(p2 - p1 - 1); // ptrdiff_t to size_t
+		switch (*p)
+		{
+		case 'i':
+			// interop-constraints
+			break;
+		case 'l':
+			// level-id
+			break;
+		case 'p':
+			// profile-space
+			// profile-id
+			// profile-compatibility-indicator
+			break;
+
+		case 's':
+			// sprop-dci
+			// sprop-vps
+			// sprop-sps
+			// sprop-pps
+			// sprop-sei
+			if (0 == strncasecmp("sprop-vps", p, nc))
+			{
+			}
+			else if (0 == strncasecmp("sprop-sps", p, nc))
+			{
+			}
+			else if (0 == strncasecmp("sprop-pps", p, nc))
+			{
+			}
+			else if (0 == strncasecmp("sprop-sei", p, nc))
+			{
+			}
+			else if (0 == strncasecmp("sprop-dci", p, nc))
 			{
 			}
 			break;
@@ -496,6 +577,59 @@ int sdp_a_fmtp_mpeg4(const char* fmtp, int *format, struct sdp_a_fmtp_mpeg4_t *m
 	return 0;
 }
 
+// RFC4588 RTP Retransmission Payload Format
+// a=fmtp:<number> apt=<apt-value>;rtx-time=<rtx-time-val>
+int sdp_a_fmtp_rtx(const char* fmtp, int* format, struct sdp_a_fmtp_rtx_t* rtx)
+{
+	size_t nc, vc;
+	const char* p1, * p2;
+	const char* p = fmtp;
+
+	// payload type
+	*format = atoi(p);
+	p1 = strchr(p, ' ');
+	if (!p1 || ' ' != *p1)
+		return -1;
+
+	assert(' ' == *p1);
+	p = p1 + 1;
+	while (*p)
+	{
+		p1 = strchr(p, '=');
+		if (!p1 || '=' != *p1)
+			return -1;
+
+		p2 = strchr(p1 + 1, ';');
+		if (!p2)
+			p2 = p1 + strlen(p1);
+
+		while (' ' == *p) p++; // skip space
+
+		nc = (size_t)(p1 - p); // ptrdiff_t to size_t
+		vc = (size_t)(p2 - p1 - 1); // ptrdiff_t to size_t
+		switch (*p)
+		{
+		case 'a':
+			if (0 == strncasecmp("apt", p, nc))
+			{
+				rtx->apt = atoi(p1 + 1);
+			}
+			break;
+
+		case 'r':
+			if (0 == strncasecmp("rtx-time", p, nc))
+			{
+				rtx->rtx_time = atoi(p1 + 1);
+			}
+			break;
+		}
+
+		p = *p2 ? p2 + 1 : p2;
+	}
+
+	return 0;
+}
+
 #if defined(DEBUG) || defined(_DEBUG)
 static void sdp_a_fmtp_h264_test(void)
 {
@@ -549,10 +683,20 @@ static void sdp_a_fmtp_mpeg4_aac_test(void)
 	assert(3 == mpeg4.indexDeltaLength);
 }
 
+static void sdp_a_fmtp_rtx_test(void)
+{
+	int format = 0;
+	struct sdp_a_fmtp_rtx_t rtx;
+	const char* fmtp = "111 apt=97;rtx-time=3000";
+	assert(0 == sdp_a_fmtp_rtx(fmtp, &format, &rtx));
+	assert(111 == format && 97 == rtx.apt && 3000 == rtx.rtx_time);
+}
+
 void sdp_a_fmtp_test(void)
 {
 	sdp_a_fmtp_h264_test();
 	sdp_a_fmtp_mpeg4_test();
 	sdp_a_fmtp_mpeg4_aac_test();
+	sdp_a_fmtp_rtx_test();
 }
 #endif

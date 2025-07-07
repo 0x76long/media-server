@@ -74,7 +74,7 @@ static int mov_index_build(struct mov_track_t* track)
 	}
 
 	p = realloc(stbl->stss, sizeof(stbl->stss[0]) * stbl->stss_count);
-	if (!p) return ENOMEM;
+	if (!p) return -ENOMEM;
 	stbl->stss = p;
 
 	for (j = i = 0; i < track->sample_count && j < stbl->stss_count; i++)
@@ -103,7 +103,7 @@ static int mov_read_trak(struct mov_t* mov, const struct mov_box_t* box)
         if (mov->track->sample_count > 0)
         {
             mov_apply_stco(mov->track);
-            mov_apply_elst(mov->track);
+            mov_apply_elst(mov->track, mov->mvhd.timescale);
             mov_apply_stts(mov->track);
             mov_apply_ctts(mov->track);
 			mov_apply_stss(mov->track);
@@ -205,9 +205,10 @@ static int mov_read_default(struct mov_t* mov, const struct mov_box_t* box)
 }
 
 static struct mov_parse_t s_mov_parse_table[] = {
-	{ MOV_TAG('a', 'v', '1', 'C'), MOV_NULL, mov_read_av1c }, // av1-isobmff
-	{ MOV_TAG('a', 'v', 'c', 'C'), MOV_NULL, mov_read_avcc }, // ISO/IEC 14496-15:2010(E) avcC
+	{ MOV_TAG('a', 'v', '1', 'C'), MOV_NULL, mov_read_extra }, // av1-isobmff
+	{ MOV_TAG('a', 'v', 'c', 'C'), MOV_NULL, mov_read_extra }, // ISO/IEC 14496-15:2010(E) avcC
 	{ MOV_TAG('b', 't', 'r', 't'), MOV_NULL, mov_read_btrt }, // ISO/IEC 14496-15:2010(E) 5.3.4.1.1 Definition
+	{ MOV_TAG('c', 'h', 'p', 'l'), MOV_STBL, mov_read_chpl }, // chapter title
 	{ MOV_TAG('c', 'o', '6', '4'), MOV_STBL, mov_read_stco },
     { MOV_TAG('C', 'o', 'L', 'L'), MOV_STBL, mov_read_coll },
 	{ MOV_TAG('c', 't', 't', 's'), MOV_STBL, mov_read_ctts },
@@ -223,7 +224,7 @@ static struct mov_parse_t s_mov_parse_table[] = {
 	{ MOV_TAG('g', 'm', 'i', 'n'), MOV_GMHD, mov_read_gmin }, // Apple QuickTime gmin
 	{ MOV_TAG('g', 'm', 'h', 'd'), MOV_MINF, mov_read_default }, // Apple QuickTime gmhd
 	{ MOV_TAG('h', 'd', 'l', 'r'), MOV_MDIA, mov_read_hdlr }, // Apple QuickTime minf also has hdlr
-	{ MOV_TAG('h', 'v', 'c', 'C'), MOV_NULL, mov_read_hvcc }, // ISO/IEC 14496-15:2014 hvcC
+	{ MOV_TAG('h', 'v', 'c', 'C'), MOV_NULL, mov_read_extra }, // ISO/IEC 14496-15:2014 hvcC
 	{ MOV_TAG('l', 'e', 'v', 'a'), MOV_MVEX, mov_read_leva },
 	{ MOV_TAG('m', 'd', 'a', 't'), MOV_ROOT, mov_read_mdat },
 	{ MOV_TAG('m', 'd', 'h', 'd'), MOV_MDIA, mov_read_mdhd },
@@ -265,6 +266,7 @@ static struct mov_parse_t s_mov_parse_table[] = {
 	{ MOV_TAG('u', 'u', 'i', 'd'), MOV_NULL, mov_read_uuid },
 	{ MOV_TAG('v', 'm', 'h', 'd'), MOV_MINF, mov_read_vmhd },
     { MOV_TAG('v', 'p', 'c', 'C'), MOV_NULL, mov_read_vpcc },
+	{ MOV_TAG('d', 'e', 'c', '3'), MOV_NULL, mov_read_extra }, // dolby EC-3
 
 	{ 0, 0, NULL } // last
 };
@@ -370,7 +372,7 @@ static int mov_reader_init(struct mov_reader_t* reader)
 
 	mov = &reader->mov;
 	r = mov_reader_root(mov);
-//	if (0 != r) return r;  // ignore file read error(for streaming file)
+	if (0 != r) { /*return r;*/ }  // ignore file read error(for streaming file)
 
 	for (i = 0; i < mov->track_count; i++)
 	{
@@ -423,9 +425,9 @@ void mov_reader_destroy(struct mov_reader_t* reader)
 {
 	int i;
 	for (i = 0; i < reader->mov.track_count; i++)
-        mov_free_track(reader->mov.tracks + i);
-    if (reader->mov.tracks)
-        free(reader->mov.tracks);
+		mov_free_track(reader->mov.tracks + i);
+	if (reader->mov.tracks)
+		free(reader->mov.tracks);
 	free(reader);
 }
 
@@ -479,7 +481,7 @@ FMP4_NEXT_FRAGMENT:
 	assert(sample->sample_description_index > 0);
 	ptr = onread(param, track->tkhd.track_ID, /*sample->sample_description_index-1,*/ sample->bytes, sample->pts * 1000 / track->mdhd.timescale, sample->dts * 1000 / track->mdhd.timescale, sample->flags);
 	if(!ptr)
-		return ENOMEM;
+		return -ENOMEM;
 
 	mov_buffer_seek(&reader->mov.io, sample->offset);
 	mov_buffer_read(&reader->mov.io, ptr, sample->bytes);

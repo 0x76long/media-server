@@ -4,8 +4,11 @@
 #include "mpeg4-aac.h"
 #include "mpeg4-avc.h"
 #include "mpeg4-hevc.h"
+#include "mpeg4-vvc.h"
 #include "opus-head.h"
+#include "xiph-flac.h"
 #include "aom-av1.h"
+#include "avswg-avs3.h"
 #include "amf0.h"
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +21,7 @@ struct flv_demuxer_t
 	{
 		struct mpeg4_aac_t aac;
 		struct opus_head_t opus;
+		struct flac_streaminfo_t flac;
 	} a;
 
 	union
@@ -25,6 +29,8 @@ struct flv_demuxer_t
 		struct aom_av1_t av1;
 		struct mpeg4_avc_t avc;
 		struct mpeg4_hevc_t hevc;
+		struct mpeg4_vvc_t vvc;
+		struct avswg_avs3_t avs3;
 	} v;
 
 	flv_demuxer_handler handler;
@@ -88,10 +94,16 @@ static int flv_demuxer_audio(struct flv_demuxer_t* flv, const uint8_t* data, int
 		//assert(3 == audio.bitrate && 1 == audio.channel);
 		if (FLV_SEQUENCE_HEADER == audio.avpacket)
 		{
+			flv->a.aac.profile = MPEG4_AAC_LC;
+			flv->a.aac.sampling_frequency_index = MPEG4_AAC_44100;
+			flv->a.aac.channel_configuration = 2;
+			flv->a.aac.channels = 2;
+			flv->a.aac.sampling_frequency = 44100;
+			flv->a.aac.extension_frequency = 44100;
 			mpeg4_aac_audio_specific_config_load(data + n, bytes - n, &flv->a.aac);
 			return flv->handler(flv->param, FLV_AUDIO_ASC, data + n, bytes - n, timestamp, timestamp, 0);
 		}
-		else
+		else if (FLV_AVPACKET == audio.avpacket)
 		{
 			if (0 != flv_demuxer_check_and_alloc(flv, bytes + 7 + 1 + flv->a.aac.npce))
 				return -ENOMEM;
@@ -113,20 +125,31 @@ static int flv_demuxer_audio(struct flv_demuxer_t* flv, const uint8_t* data, int
 			opus_head_load(data + n, bytes - n, &flv->a.opus);
 			return flv->handler(flv->param, FLV_AUDIO_OPUS_HEAD, data + n, bytes - n, timestamp, timestamp, 0);
 		}
-		else
+		else if (FLV_AVPACKET == audio.avpacket)
 		{
 			return flv->handler(flv->param, audio.codecid, data + n, bytes - n, timestamp, timestamp, 0);
 		}
 	}
-	else if (FLV_AUDIO_MP3 == audio.codecid || FLV_AUDIO_MP3_8K == audio.codecid)
+	else if (FLV_AUDIO_FLAC == audio.codecid)
 	{
-		return flv->handler(flv->param, audio.codecid, data + n, bytes - n, timestamp, timestamp, 0);
+		if (FLV_SEQUENCE_HEADER == audio.avpacket)
+		{
+			flac_streaminfo_load(data + n, bytes - n, &flv->a.flac);
+			return flv->handler(flv->param, FLV_AUDIO_FLAC_HEAD, data + n, bytes - n, timestamp, timestamp, 0);
+		}
+		else if (FLV_AVPACKET == audio.avpacket)
+		{
+			return flv->handler(flv->param, audio.codecid, data + n, bytes - n, timestamp, timestamp, 0);
+		}
 	}
 	else
 	{
-		// Audio frame data
-		return flv->handler(flv->param, audio.codecid, data + n, bytes - n, timestamp, timestamp, 0);
+		// Audio frame data: mp3/ac-3/eac-3
+		if (FLV_AVPACKET == audio.avpacket)
+			return flv->handler(flv->param, audio.codecid, data + n, bytes - n, timestamp, timestamp, 0);
 	}
+
+	return 0;
 }
 
 static int flv_demuxer_video(struct flv_demuxer_t* flv, const uint8_t* data, int bytes, uint32_t timestamp)
@@ -148,8 +171,9 @@ static int flv_demuxer_video(struct flv_demuxer_t* flv, const uint8_t* data, int
 		}
 		else if(FLV_AVPACKET == video.avpacket)
 		{
-			assert(flv->v.avc.nalu > 0); // parse AVCDecoderConfigurationRecord failed
-			if (flv->v.avc.nalu > 0 && bytes > n) // 5 ==  bytes flv eof
+			// feat: h264_mp4toannexb support flv->v.avc.nalu == 0
+			//assert(flv->v.avc.nalu > 0); // parse AVCDecoderConfigurationRecord failed
+			//if (flv->v.avc.nalu > 0 && bytes > n) // 5 ==  bytes flv eof
 			{
 				// H.264
 				if (0 != flv_demuxer_check_and_alloc(flv, bytes + 4 * 1024))
@@ -159,8 +183,9 @@ static int flv_demuxer_video(struct flv_demuxer_t* flv, const uint8_t* data, int
 				n = h264_mp4toannexb(&flv->v.avc, data + n, bytes - n, flv->ptr, flv->capacity);
 				if (n <= 0 || n > flv->capacity)
 				{
-					assert(0);
-					return -ENOMEM;
+					// fix: dj drones rtmp bitstream 9 bytes: 01 00 00 00 00 00 00 00 00
+					assert(n <= flv->capacity);
+					return 0 == n ? 0 : -ENOMEM;
 				}
 				return flv->handler(flv->param, FLV_VIDEO_H264, flv->ptr, n, timestamp + video.cts, timestamp, (FLV_VIDEO_KEY_FRAME == video.keyframe) ? 1 : 0);
 			}
@@ -187,8 +212,9 @@ static int flv_demuxer_video(struct flv_demuxer_t* flv, const uint8_t* data, int
 		}
 		else if (FLV_AVPACKET == video.avpacket)
 		{
-			assert(flv->v.hevc.numOfArrays > 0); // parse HEVCDecoderConfigurationRecord failed
-			if (flv->v.hevc.numOfArrays > 0 && bytes > n) // 5 ==  bytes flv eof
+			// feat: h265_mp4toannexb support flv->v.hevc.numOfArrays == 0
+			//assert(flv->v.hevc.numOfArrays > 0); // parse HEVCDecoderConfigurationRecord failed
+			//if (flv->v.hevc.numOfArrays > 0 && bytes > n) // 5 ==  bytes flv eof
 			{
 				// H.265
 				if (0 != flv_demuxer_check_and_alloc(flv, bytes + 4 * 1024))
@@ -210,8 +236,47 @@ static int flv_demuxer_video(struct flv_demuxer_t* flv, const uint8_t* data, int
 		}
 		else
 		{
-			assert(0);
+			assert(video.avpacket >= FLV_PACKET_TYPE_CODED_FRAMES_X && video.avpacket <= FLV_PACKET_TYPE_MULTITRACK);
+			return 0;
+		}
+	}
+	else if (FLV_VIDEO_H266 == video.codecid)
+	{
+		if (FLV_SEQUENCE_HEADER == video.avpacket)
+		{
+			// VVCDecoderConfigurationRecord
+			assert(bytes > n + 5);
+			mpeg4_vvc_decoder_configuration_record_load(data + n, bytes - n, &flv->v.vvc);
+			return flv->handler(flv->param, FLV_VIDEO_VVCC, data + n, bytes - n, timestamp + video.cts, timestamp, 0);
+		}
+		else if (FLV_AVPACKET == video.avpacket)
+		{
+			// feat: h266_mp4toannexb support flv->v.vvc.numOfArrays == 0
+			//assert(flv->v.vvc.numOfArrays > 0); // parse VVCDecoderConfigurationRecord failed
+			//if (flv->v.vvc.numOfArrays > 0 && bytes > n) // 5 ==  bytes flv eof
+			{
+				// H.266
+				if (0 != flv_demuxer_check_and_alloc(flv, bytes + 4 * 1024))
+					return -ENOMEM;
+
+				n = h266_mp4toannexb(&flv->v.vvc, data + n, bytes - n, flv->ptr, flv->capacity);
+				if (n <= 0 || n > flv->capacity)
+				{
+					assert(0);
+					return -ENOMEM;
+				}
+				return flv->handler(flv->param, FLV_VIDEO_H266, flv->ptr, n, timestamp + video.cts, timestamp, (FLV_VIDEO_KEY_FRAME == video.keyframe) ? 1 : 0);
+			}
 			return -EINVAL;
+		}
+		else if (FLV_END_OF_SEQUENCE == video.avpacket)
+		{
+			return 0; // AVC end of sequence (lower level NALU sequence ender is not required or supported)
+		}
+		else
+		{
+			assert(video.avpacket >= FLV_PACKET_TYPE_CODED_FRAMES_X && video.avpacket <= FLV_PACKET_TYPE_MULTITRACK);
+			return 0;
 		}
 	}
 	else if (FLV_VIDEO_AV1 == video.codecid)
@@ -230,6 +295,29 @@ static int flv_demuxer_video(struct flv_demuxer_t* flv, const uint8_t* data, int
 		else if (FLV_END_OF_SEQUENCE == video.avpacket)
 		{
 			return 0; // AV1 end of sequence (lower level NALU sequence ender is not required or supported)
+		}
+		else
+		{
+			assert(video.avpacket >= FLV_PACKET_TYPE_CODED_FRAMES_X && video.avpacket <= FLV_PACKET_TYPE_MULTITRACK);
+			return 0;
+		}
+	}
+	else if (FLV_VIDEO_AVS3 == video.codecid)
+	{
+		if (FLV_SEQUENCE_HEADER == video.avpacket)
+		{
+			// AVS3DecoderConfigurationRecord
+			assert(bytes > n + 5);
+			avswg_avs3_decoder_configuration_record_load(data + n, bytes - n, &flv->v.avs3);
+			return flv->handler(flv->param, FLV_VIDEO_AVSC, data + n, bytes - n, timestamp + video.cts, timestamp, 0);
+		}
+		else if (FLV_AVPACKET == video.avpacket)
+		{
+			return flv->handler(flv->param, FLV_VIDEO_AVS3, data + n, bytes - n, timestamp + video.cts, timestamp, (FLV_VIDEO_KEY_FRAME == video.keyframe) ? 1 : 0);
+		}
+		else if (FLV_END_OF_SEQUENCE == video.avpacket)
+		{
+			return 0; // AVC end of sequence (lower level NALU sequence ender is not required or supported)
 		}
 		else
 		{

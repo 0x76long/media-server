@@ -22,7 +22,6 @@ PSFileSource::PSFileSource(const char *file)
 	func.free = Free;
 	func.write = Packet;
 	m_ps = ps_muxer_create(&func, this);
-    m_ps_stream = ps_muxer_add_stream(m_ps, STREAM_VIDEO_H264, NULL, 0);
 
 	static struct rtp_payload_t s_psfunc = {
 		PSFileSource::RTPAlloc,
@@ -34,7 +33,7 @@ PSFileSource::PSFileSource(const char *file)
 	struct rtp_event_t event;
 	event.on_rtcp = OnRTCPEvent;
 	m_rtp = rtp_create(&event, this, ssrc, ssrc, 90000, 4*1024, 1);
-	rtp_set_info(m_rtp, "RTSPServer", "szj.h264");
+	rtp_set_info(m_rtp, "RTSPServer", "szj.ps");
 }
 
 PSFileSource::~PSFileSource()
@@ -61,11 +60,26 @@ int PSFileSource::Play()
 	{
 		size_t bytes;
 		const uint8_t* ptr;
-		if(0 == m_reader.GetNextFrame(m_pos, ptr, bytes))
+		int64_t pts, dts;
+		int codecid, flags;
+		if(0 == m_reader.GetNextFrame(pts, dts, ptr, bytes, codecid, flags))
 		{
+			int mux_sid;
+			std::map<int, int>::const_iterator it = m_streams.find(codecid);
+			if (m_streams.end() == it)
+			{
+				mux_sid = ps_muxer_add_stream(m_ps, codecid, NULL, 0);
+				m_streams[codecid] = mux_sid;
+			}
+			else
+			{
+				mux_sid = it->second;
+			}
+
+			m_pos = dts >= 0 ? dts : pts;
 			if(0 == m_ps_clock)
 				m_ps_clock = clock;
-			ps_muxer_input(m_ps, m_ps_stream, 0, (clock-m_ps_clock)*90, (clock-m_ps_clock)*90, ptr, bytes);
+			ps_muxer_input(m_ps, mux_sid, flags, pts /*(clock - m_ps_clock) * 90*/, dts /*(clock - m_ps_clock) * 90 */, ptr, bytes);
 			m_rtp_clock += 40;
 
 			SendRTCP();
@@ -170,7 +184,7 @@ int PSFileSource::Packet(void* param, int /*avtype*/, void* pes, size_t bytes)
 {
 	PSFileSource* self = (PSFileSource*)param;
 	time64_t clock = time64_now();
-	return rtp_payload_encode_input(self->m_pspacker, pes, bytes, clock * 90 /*kHz*/);
+	return rtp_payload_encode_input(self->m_pspacker, pes, (int)bytes, (uint32_t)(clock * 90 /*kHz*/));
 }
 
 void* PSFileSource::RTPAlloc(void* param, int bytes)

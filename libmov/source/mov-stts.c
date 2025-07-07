@@ -17,7 +17,7 @@ int mov_read_stts(struct mov_t* mov, const struct mov_box_t* box)
 	if (stbl->stts_count < entry_count)
 	{
 		void* p = realloc(stbl->stts, sizeof(struct mov_stts_t) * entry_count);
-		if (NULL == p) return ENOMEM;
+		if (NULL == p) return -ENOMEM;
 		stbl->stts = (struct mov_stts_t*)p;
 	}
 	stbl->stts_count = entry_count;
@@ -46,7 +46,7 @@ int mov_read_ctts(struct mov_t* mov, const struct mov_box_t* box)
 	if (stbl->ctts_count < entry_count)
 	{
 		void* p = realloc(stbl->ctts, sizeof(struct mov_stts_t) * entry_count);
-		if (NULL == p) return ENOMEM;
+		if (NULL == p) return -ENOMEM;
 		stbl->ctts = (struct mov_stts_t*)p;
 	}
 	stbl->ctts_count = entry_count;
@@ -152,7 +152,7 @@ uint32_t mov_build_stts(struct mov_track_t* track)
     {
 		assert(track->samples[i + 1].dts >= track->samples[i].dts || i + 1 == track->sample_count);
         delta = (uint32_t)(i + 1 < track->sample_count && track->samples[i + 1].dts > track->samples[i].dts ? track->samples[i + 1].dts - track->samples[i].dts : 1);
-        if (NULL != sample && delta == sample->samples_per_chunk)
+        if (NULL != sample && (delta == sample->samples_per_chunk || i + 1 == track->sample_count) )
         {
             track->samples[i].first_chunk = 0;
             assert(sample->first_chunk > 0);

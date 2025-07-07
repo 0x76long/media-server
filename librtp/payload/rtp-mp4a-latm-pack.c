@@ -61,7 +61,7 @@ static int rtp_mp4a_latm_pack_input(void* pack, const void* data, int bytes, uin
 	int r;
 	int n, len;
 	uint8_t *rtp;
-	uint8_t hd[400]; // 100KB
+	uint8_t hd[40]; // 10KB
 	const uint8_t *ptr;
 	struct rtp_encode_mp4a_latm_t *packer;
 	packer = (struct rtp_encode_mp4a_latm_t *)pack;
@@ -70,6 +70,7 @@ static int rtp_mp4a_latm_pack_input(void* pack, const void* data, int bytes, uin
 
 	r = 0;
 	ptr = (const uint8_t *)data;
+#if defined(RTP_MP4A_LATM_SKIP_ADTS)
 	if (0xFF == ptr[0] && 0xF0 == (ptr[1] & 0xF0) && bytes > 7)
 	{
 		// skip ADTS header
@@ -77,6 +78,7 @@ static int rtp_mp4a_latm_pack_input(void* pack, const void* data, int bytes, uin
 		ptr += 7;
 		bytes -= 7;
 	}
+#endif
 
 	// ISO/IEC 14496-3:200X(E)
 	// Table 1.44 - Syntax of PayloadLengthInfo() (p84)
@@ -115,7 +117,7 @@ static int rtp_mp4a_latm_pack_input(void* pack, const void* data, int bytes, uin
 		memcpy(rtp + n + len, packer->pkt.payload, packer->pkt.payloadlen);
 		r = packer->handler.packet(packer->cbparam, rtp, n + len + packer->pkt.payloadlen, packer->pkt.rtp.timestamp, 0);
 		packer->handler.free(packer->cbparam, rtp);
-		len = 0;
+		len = 0; // write PayloadLengthInfo once only
 	}
 
 	return r;
